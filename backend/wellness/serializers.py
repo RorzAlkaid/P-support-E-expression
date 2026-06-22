@@ -7,8 +7,12 @@ from .models import (
     AssessmentScale,
     Counselor,
     CrisisAlert,
+    ExternalResourceSource,
     MoodEntry,
+    ResourceFetchLog,
     StudentProfile,
+    TreeHolePost,
+    TreeHoleReply,
 )
 
 
@@ -45,6 +49,9 @@ class CounselorSerializer(serializers.ModelSerializer):
             'qualifications',
             'available_slots',
             'avatar_color',
+            'source',
+            'external_url',
+            'fetched_at',
             'is_active',
             'match_score',
         ]
@@ -61,9 +68,25 @@ class ArticleSerializer(serializers.ModelSerializer):
             'summary',
             'content',
             'tags',
+            'external_url',
+            'fetched_at',
             'is_published',
             'updated_at',
         ]
+
+
+class ExternalResourceSourceSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = ExternalResourceSource
+        fields = ['id', 'name', 'url', 'organization', 'category', 'tags', 'enabled', 'last_fetched_at']
+
+
+class ResourceFetchLogSerializer(serializers.ModelSerializer):
+    source_name = serializers.CharField(source='source.name', read_only=True)
+
+    class Meta:
+        model = ResourceFetchLog
+        fields = ['id', 'source', 'source_name', 'status', 'message', 'articles_created', 'articles_updated', 'created_at']
 
 
 class AssessmentScaleSerializer(serializers.ModelSerializer):
@@ -146,3 +169,35 @@ class CrisisAlertSerializer(serializers.ModelSerializer):
             'handler_note',
             'created_at',
         ]
+
+
+class TreeHoleReplySerializer(serializers.ModelSerializer):
+    class Meta:
+        model = TreeHoleReply
+        fields = ['id', 'post', 'responder_name', 'content', 'is_counselor_reply', 'created_at']
+
+
+class TreeHolePostSerializer(serializers.ModelSerializer):
+    student_name = serializers.SerializerMethodField()
+    replies = TreeHoleReplySerializer(many=True, read_only=True)
+
+    class Meta:
+        model = TreeHolePost
+        fields = [
+            'id',
+            'student',
+            'student_name',
+            'category',
+            'content',
+            'mood_tag',
+            'is_anonymous',
+            'support_count',
+            'risk_flag',
+            'replies',
+            'created_at',
+        ]
+
+    def get_student_name(self, obj):
+        if obj.is_anonymous or not obj.student:
+            return '匿名同学'
+        return obj.student.user.get_full_name() or obj.student.user.username

@@ -1,7 +1,7 @@
 <script setup>
 import axios from 'axios'
 import * as echarts from 'echarts'
-import { nextTick, onMounted, onUnmounted, ref } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, ref } from 'vue'
 import heroImage from './assets/landing-hero.png'
 import logoMark from './assets/xinqing-logo-mark.svg'
 
@@ -20,13 +20,160 @@ const articles = ref([])
 const trendChartRef = ref(null)
 const pressureChartRef = ref(null)
 const currentUser = ref(null)
+const initialHashParts = window.location.hash?.replace('#/', '').split('/') || ['home']
+const currentPage = ref(initialHashParts[0] || 'home')
 const authSubmitting = ref(false)
 const authMessage = ref('')
+const moduleData = ref(null)
+const moduleMessage = ref('')
+const currentArticleId = ref(initialHashParts[0] === 'article' ? initialHashParts[1] : null)
+const activeModule = ref('mood')
+const moodForm = ref({
+  mood: '平静',
+  intensity: 6,
+  sleep_quality: 6,
+  pressure_sources: '学业压力',
+  note: '',
+})
+const treeholeForm = ref({
+  category: 'study',
+  mood_tag: '焦虑',
+  content: '',
+})
+const assessmentForm = ref({
+  scale: null,
+  answers: [],
+})
+const appointmentForm = ref({
+  counselor: null,
+  scheduled_at: '',
+  topic: '',
+  confidential_note: '',
+})
+const replyForms = ref({})
 const authForm = ref({
   username: '',
   password: '',
   confirmPassword: '',
   role: '学生',
+})
+
+const pageTitles = {
+  home: '首页',
+  details: '平台详情',
+  article: '文章详情',
+  mood: '情绪打卡',
+  treehole: '匿名树洞',
+  assessment: '心理测评',
+  appointment: '咨询预约',
+  resources: '心理资源',
+  alerts: '预警管理',
+}
+
+const moduleIntros = [
+  {
+    page: 'mood',
+    title: '情绪打卡',
+    stat: '趋势记录',
+    text: '记录每日情绪、睡眠质量、压力来源和私密日记，形成可追踪的情绪变化数据。',
+    points: ['情绪强度', '睡眠质量', '压力来源'],
+  },
+  {
+    page: 'treehole',
+    title: '匿名树洞',
+    stat: '匿名表达',
+    text: '为学生提供低压力表达入口，支持匿名发布、同伴回应和高风险内容提醒。',
+    points: ['匿名发布', '温和回应', '风险标记'],
+  },
+  {
+    page: 'assessment',
+    title: '心理测评',
+    stat: '自助筛查',
+    text: '通过量表题目生成得分、风险等级和建议，帮助学生初步理解当前状态。',
+    points: ['量表答题', '风险等级', '建议反馈'],
+  },
+  {
+    page: 'appointment',
+    title: '咨询预约',
+    stat: '专业对接',
+    text: '按咨询师、时间和主题提交预约，帮助学生从自助支持进入专业支持流程。',
+    points: ['咨询师选择', '预约记录', '保密备注'],
+  },
+  {
+    page: 'resources',
+    title: '心理资源',
+    stat: '动态内容',
+    text: '集中展示心理科普文章和自助干预内容，为学生提供可持续的日常支持。',
+    points: ['科普文章', '自助练习', '主题标签'],
+  },
+  {
+    page: 'alerts',
+    title: '预警管理',
+    stat: '持续关怀',
+    text: '汇总高风险测评、情绪低谷和危机表达，辅助教师与管理员及时跟进。',
+    points: ['风险预警', '处理状态', '后台管理'],
+  },
+]
+
+const moduleDetails = [
+  {
+    page: 'mood',
+    title: '情绪打卡',
+    summary: '用于持续记录学生每天的情绪、睡眠质量、压力来源和私密日记，帮助学生和心理教师发现状态变化。',
+    student: ['提交每日情绪记录', '查看个人情绪趋势', '记录压力来源和睡眠情况', '在低谷时获得后续支持入口'],
+    teacher: ['查看已录入的情绪数据', '关注持续低情绪或睡眠异常', '结合量表和预约记录判断是否需要跟进'],
+    data: ['情绪标签', '情绪强度', '睡眠质量', '压力来源', '日记内容'],
+  },
+  {
+    page: 'treehole',
+    title: '匿名树洞',
+    summary: '为学生提供低压力表达空间，支持匿名倾诉和温和回应，同时对高风险表达进行标记。',
+    student: ['匿名发布困扰', '查看同伴回应', '回应他人的表达', '在安全氛围中获得支持'],
+    teacher: ['浏览树洞内容', '识别高风险表达', '通过后台进行必要跟进', '维护社区表达秩序'],
+    data: ['分类', '情绪标签', '匿名内容', '回应内容', '风险标记'],
+  },
+  {
+    page: 'assessment',
+    title: '心理测评',
+    summary: '通过简短量表完成自助筛查，系统自动生成得分、风险等级和建议。',
+    student: ['选择量表答题', '查看测评结果', '获得分层建议', '根据结果进入预约流程'],
+    teacher: ['查看测评记录', '关注中高风险学生', '结合情绪数据辅助判断', '制定后续干预方案'],
+    data: ['量表题目', '答题记录', '测评分数', '风险等级', '反馈建议'],
+  },
+  {
+    page: 'appointment',
+    title: '咨询预约',
+    summary: '帮助学生根据咨询师擅长领域和可预约时间发起咨询请求，形成专业对接流程。',
+    student: ['选择咨询师', '提交预约时间', '填写咨询主题', '查看预约状态'],
+    teacher: ['查看预约队列', '确认或跟进预约', '结合备注了解来访需求', '管理排班与服务记录'],
+    data: ['咨询师', '预约时间', '咨询主题', '预约状态', '保密备注'],
+  },
+  {
+    page: 'resources',
+    title: '心理资源',
+    summary: '集中展示心理科普文章、自助练习和求助指南，为学生提供日常心理健康支持。',
+    student: ['浏览心理科普', '按主题理解压力与情绪', '获取自助练习方法', '了解求助时机'],
+    teacher: ['维护资源内容', '按学生需求推荐文章', '辅助开展心理健康教育', '持续更新知识库'],
+    data: ['文章标题', '来源', '分类', '摘要', '标签'],
+  },
+  {
+    page: 'alerts',
+    title: '预警管理',
+    summary: '汇总量表高分、低情绪记录和危机表达，为教师和管理员提供持续关怀线索。',
+    student: ['触发预警后获得关注', '通过预约和记录进入支持流程', '保留必要的隐私边界'],
+    teacher: ['查看未处理预警', '识别需要跟进的学生', '记录处理结果', '推动持续关怀闭环'],
+    data: ['学生信息', '预警等级', '触发原因', '处理状态', '处理记录'],
+  },
+]
+
+const currentRole = computed(() => currentUser.value?.role || 'guest')
+const canWrite = computed(() => ['student', 'admin'].includes(currentRole.value))
+const canManage = computed(() => currentRole.value === 'admin')
+const currentArticle = computed(() => articles.value.find((item) => String(item.id) === String(currentArticleId.value)))
+const readonlyReason = computed(() => {
+  if (currentRole.value === 'guest') return '未登录用户只能浏览已经录入的数据，不能新增或修改。'
+  if (currentRole.value === 'teacher') return '教师账号仅可查询学生数据和平台内容，不能新增或修改。'
+  return ''
 })
 
 function handlePointerMove(event) {
@@ -44,14 +191,43 @@ function handleScroll() {
   scrollShift.value = `${shift.toFixed(2)}px`
 }
 
+function navigate(page) {
+  currentPage.value = page
+  window.location.hash = `/${page}`
+  window.scrollTo({ top: 0, behavior: 'smooth' })
+  if (page !== 'home') {
+    refreshModules()
+  }
+}
+
+function openArticle(article) {
+  currentArticleId.value = article.id
+  currentPage.value = 'article'
+  window.location.hash = `/article/${article.id}`
+  window.scrollTo({ top: 0, behavior: 'smooth' })
+}
+
+function scrollToModules() {
+  document.querySelector('#modules')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+}
+
+function startExperience() {
+  if (currentUser.value) {
+    navigate('details')
+    return
+  }
+  openAuth('login')
+}
+
 async function loadBackendData() {
   try {
-    const [dashboardRes, trendRes, pressureRes, counselorsRes, articlesRes] = await Promise.all([
+    const [dashboardRes, trendRes, pressureRes, counselorsRes, articlesRes, moduleRes] = await Promise.all([
       axios.get('/api/dashboard/'),
       axios.get('/api/mood-trend/'),
       axios.get('/api/pressure-distribution/'),
       axios.get('/api/recommendations/counselors/?student=1'),
       axios.get('/api/articles/'),
+      axios.get('/api/modules/'),
     ])
 
     dashboard.value = dashboardRes.data
@@ -59,6 +235,16 @@ async function loadBackendData() {
     pressureData.value = pressureRes.data
     counselors.value = counselorsRes.data
     articles.value = articlesRes.data.results ?? articlesRes.data
+    moduleData.value = moduleRes.data
+    const firstScale = moduleRes.data.scales?.[0]
+    const firstCounselor = moduleRes.data.counselors?.[0]
+    if (firstScale && !assessmentForm.value.scale) {
+      assessmentForm.value.scale = firstScale.id
+      assessmentForm.value.answers = firstScale.questions.map(() => 1)
+    }
+    if (firstCounselor && !appointmentForm.value.counselor) {
+      appointmentForm.value.counselor = firstCounselor.id
+    }
     loading.value = false
     await nextTick()
     renderCharts()
@@ -66,6 +252,21 @@ async function loadBackendData() {
     loading.value = false
     console.error('Django API 数据加载失败', error)
   }
+}
+
+async function refreshModules() {
+  const [moduleRes, dashboardRes, trendRes, pressureRes] = await Promise.all([
+    axios.get('/api/modules/'),
+    axios.get('/api/dashboard/'),
+    axios.get('/api/mood-trend/'),
+    axios.get('/api/pressure-distribution/'),
+  ])
+  moduleData.value = moduleRes.data
+  dashboard.value = dashboardRes.data
+  moodTrend.value = trendRes.data
+  pressureData.value = pressureRes.data
+  await nextTick()
+  renderCharts()
 }
 
 async function loadCurrentUser() {
@@ -131,6 +332,11 @@ onMounted(() => {
   loadCurrentUser()
   window.addEventListener('pointermove', handlePointerMove)
   window.addEventListener('scroll', handleScroll, { passive: true })
+  window.addEventListener('hashchange', () => {
+    const parts = window.location.hash?.replace('#/', '').split('/') || ['home']
+    currentPage.value = parts[0] || 'home'
+    currentArticleId.value = parts[0] === 'article' ? parts[1] : currentArticleId.value
+  })
 })
 
 onUnmounted(() => {
@@ -233,6 +439,115 @@ async function logoutAccount() {
   await axios.post('/api/auth/logout/')
   currentUser.value = null
 }
+
+function pressureSourceList(value) {
+  return String(value || '')
+    .split(/[，,、\s]+/)
+    .map((item) => item.trim())
+    .filter(Boolean)
+}
+
+async function submitMood() {
+  if (!canWrite.value) {
+    moduleMessage.value = readonlyReason.value
+    return
+  }
+  const payload = {
+    ...moodForm.value,
+    intensity: Number(moodForm.value.intensity),
+    sleep_quality: Number(moodForm.value.sleep_quality),
+    pressure_sources: pressureSourceList(moodForm.value.pressure_sources),
+    is_private: true,
+  }
+  await axios.post('/api/modules/moods/', payload)
+  moodForm.value.note = ''
+  moduleMessage.value = '情绪打卡已保存。'
+  await refreshModules()
+}
+
+async function submitTreehole() {
+  if (!canWrite.value) {
+    moduleMessage.value = readonlyReason.value
+    return
+  }
+  await axios.post('/api/modules/treeholes/', {
+    ...treeholeForm.value,
+    is_anonymous: true,
+  })
+  treeholeForm.value.content = ''
+  moduleMessage.value = '匿名树洞已发布。'
+  await refreshModules()
+}
+
+async function submitAssessment() {
+  if (!canWrite.value) {
+    moduleMessage.value = readonlyReason.value
+    return
+  }
+  const response = await axios.post('/api/modules/assessments/', {
+    scale: assessmentForm.value.scale,
+    answers: assessmentForm.value.answers.map((item) => Number(item)),
+  })
+  moduleMessage.value = `测评已提交：${response.data.scale_name}，得分 ${response.data.score}，风险等级 ${response.data.risk_level}。`
+  await refreshModules()
+}
+
+async function submitAppointment() {
+  if (!canWrite.value) {
+    moduleMessage.value = readonlyReason.value
+    return
+  }
+  await axios.post('/api/modules/appointments/', appointmentForm.value)
+  appointmentForm.value.topic = ''
+  appointmentForm.value.confidential_note = ''
+  moduleMessage.value = '预约已提交，等待心理老师确认。'
+  await refreshModules()
+}
+
+async function submitReply(postId) {
+  if (!canWrite.value) {
+    moduleMessage.value = readonlyReason.value
+    return
+  }
+  const content = replyForms.value[postId]
+  if (!content) return
+  await axios.post(`/api/modules/treeholes/${postId}/reply/`, { content })
+  replyForms.value[postId] = ''
+  moduleMessage.value = '回应已发送。'
+  await refreshModules()
+}
+
+async function adminDelete(url) {
+  if (!canManage.value) return
+  await axios.delete(url)
+  moduleMessage.value = '管理员已删除该条数据。'
+  await refreshModules()
+}
+
+async function adminPatch(url, payload) {
+  if (!canManage.value) return
+  await axios.patch(url, payload)
+  moduleMessage.value = '管理员已更新该条数据。'
+  await refreshModules()
+}
+
+async function editTreehole(post) {
+  const content = window.prompt('修改树洞内容', post.content)
+  if (content !== null) {
+    await adminPatch(`/api/treehole-posts/${post.id}/`, { content })
+  }
+}
+
+async function editAppointment(item) {
+  const status = window.prompt('修改预约状态：pending / confirmed / finished / cancelled', item.status)
+  if (status) {
+    await adminPatch(`/api/appointments/${item.id}/`, { status })
+  }
+}
+
+async function editAlert(alert) {
+  await adminPatch(`/api/crisis-alerts/${alert.id}/`, { handled: !alert.handled })
+}
 </script>
 
 <template>
@@ -247,7 +562,7 @@ async function logoutAccount() {
       <span class="ink-wash wash-three"></span>
     </div>
     <header class="site-header">
-      <a class="brand" href="#home" aria-label="心晴校园首页">
+      <a class="brand" href="#/home" aria-label="心晴校园首页" @click.prevent="navigate('home')">
         <span class="brand-mark">
           <img :src="logoMark" alt="" />
         </span>
@@ -255,12 +570,13 @@ async function logoutAccount() {
       </a>
 
       <nav class="site-nav" aria-label="网站导航">
-        <a href="#features">功能</a>
-        <a href="#insights">数据</a>
-        <a href="#support">咨询</a>
-        <a href="#scenes">场景</a>
-        <a href="#process">流程</a>
-        <a href="#contact">开始使用</a>
+        <a href="#/home" @click.prevent="navigate('home')">首页</a>
+        <a href="#/mood" @click.prevent="navigate('mood')">情绪打卡</a>
+        <a href="#/treehole" @click.prevent="navigate('treehole')">匿名树洞</a>
+        <a href="#/assessment" @click.prevent="navigate('assessment')">心理测评</a>
+        <a href="#/appointment" @click.prevent="navigate('appointment')">咨询预约</a>
+        <a href="#/resources" @click.prevent="navigate('resources')">心理资源</a>
+        <a href="#/alerts" @click.prevent="navigate('alerts')">预警管理</a>
       </nav>
 
       <div class="auth-actions">
@@ -275,7 +591,7 @@ async function logoutAccount() {
       </div>
     </header>
 
-    <main>
+    <main v-if="currentPage === 'home'">
       <section id="home" class="hero-section scroll-follow follow-soft">
         <div class="hero-copy reveal-up">
           <span class="eyebrow">大学生心理支持与情绪表达平台</span>
@@ -284,8 +600,8 @@ async function logoutAccount() {
             面向高校学生、心理老师与管理者的一体化平台，整合情绪打卡、匿名倾诉、心理测评、咨询预约和风险预警。
           </p>
           <div class="hero-actions">
-            <button class="solid-button large" type="button" @click="openAuth('register')">立即体验</button>
-            <a class="outline-link" href="#features">查看功能</a>
+            <button class="solid-button large" type="button" @click="startExperience">立即体验</button>
+            <button class="outline-button large" type="button" @click="scrollToModules">查看功能</button>
           </div>
           <div class="hero-metrics" aria-label="平台亮点">
             <div><strong>5+</strong><span>核心支持模块</span></div>
@@ -316,7 +632,13 @@ async function logoutAccount() {
         </div>
 
         <div class="feature-grid">
-          <article v-for="feature in features" :key="feature.title" :class="['feature-card', feature.accent]" tabindex="0">
+          <article
+            v-for="(feature, index) in features"
+            :key="feature.title"
+            :class="['feature-card', feature.accent]"
+            tabindex="0"
+            @click="navigate(['mood', 'treehole', 'assessment', 'appointment'][index])"
+          >
             <span class="feature-stat">{{ feature.stat }}</span>
             <h3>{{ feature.title }}</h3>
             <button class="feature-subtitle" type="button">{{ feature.subtitle }}</button>
@@ -408,7 +730,7 @@ async function logoutAccount() {
         </div>
 
         <div class="support-grid">
-          <article v-for="counselor in counselors" :key="counselor.id" class="counselor-card">
+          <article v-for="counselor in counselors" :key="counselor.id" class="counselor-card" @click="navigate('appointment')">
             <span class="counselor-avatar" :style="{ background: counselor.avatar_color }">{{ counselor.name.slice(0, 1) }}</span>
             <div>
               <h3>{{ counselor.name }}</h3>
@@ -429,7 +751,7 @@ async function logoutAccount() {
         </div>
 
         <div class="resource-grid">
-          <article v-for="article in articles" :key="article.id" class="resource-card">
+          <article v-for="article in articles" :key="article.id" class="resource-card" @click="openArticle(article)">
             <span>{{ article.category }} · {{ article.source }}</span>
             <h3>{{ article.title }}</h3>
             <p>{{ article.summary }}</p>
@@ -440,7 +762,34 @@ async function logoutAccount() {
         </div>
       </section>
 
-      <section id="contact" class="cta-section scroll-follow follow-deep">
+      <section id="modules" class="section module-section scroll-follow follow-deep">
+        <div class="section-heading align-left wide-heading">
+          <span class="eyebrow">功能简介</span>
+          <h2>按模块进入对应功能页</h2>
+          <p>首页只保留功能说明和入口。点击任一简介卡片后进入对应功能页，再按当前角色进行浏览、提交或管理。</p>
+        </div>
+
+        <div class="module-intro-grid">
+          <article
+            v-for="intro in moduleIntros"
+            :key="intro.page"
+            class="module-intro-card"
+            tabindex="0"
+            @click="navigate(intro.page)"
+            @keydown.enter="navigate(intro.page)"
+          >
+            <span>{{ intro.stat }}</span>
+            <h3>{{ intro.title }}</h3>
+            <p>{{ intro.text }}</p>
+            <div class="tag-list">
+              <span v-for="point in intro.points" :key="point">{{ point }}</span>
+            </div>
+            <button class="text-button intro-link" type="button">进入{{ intro.title }}</button>
+          </article>
+        </div>
+      </section>
+
+      <section v-if="!currentUser" id="contact" class="cta-section scroll-follow follow-deep">
         <div>
           <span class="eyebrow">开始使用</span>
           <h2>进入平台，建立属于校园的心理支持空间</h2>
@@ -453,7 +802,216 @@ async function logoutAccount() {
       </section>
     </main>
 
-    <footer class="site-footer">
+    <main v-else class="standalone-page">
+      <section class="page-hero">
+        <button class="text-button" type="button" @click="navigate('home')">返回首页</button>
+        <span class="eyebrow">{{ pageTitles[currentPage] }}</span>
+        <h1>{{ pageTitles[currentPage] }}</h1>
+      </section>
+
+      <section v-if="currentPage === 'details'" class="detail-page">
+        <article class="detail-overview module-panel">
+          <span class="eyebrow">平台说明</span>
+          <h2>围绕“表达、识别、对接、关怀”的心理支持闭环</h2>
+          <p>
+            平台面向学生、心理教师和管理员提供分层功能。学生可以记录和提交数据；教师侧重查询、理解和跟进；
+            管理员负责维护数据、处理预警和管理内容。
+          </p>
+        </article>
+
+        <div class="detail-grid">
+          <article v-for="item in moduleDetails" :key="item.page" class="detail-card">
+            <div class="detail-card-head">
+              <div>
+                <span>{{ item.title }}</span>
+                <h3>{{ item.summary }}</h3>
+              </div>
+              <button class="text-button" type="button" @click="navigate(item.page)">进入模块</button>
+            </div>
+
+            <div class="detail-columns">
+              <section>
+                <h4>学生可以做什么</h4>
+                <ul>
+                  <li v-for="text in item.student" :key="text">{{ text }}</li>
+                </ul>
+              </section>
+              <section>
+                <h4>教师可以了解什么</h4>
+                <ul>
+                  <li v-for="text in item.teacher" :key="text">{{ text }}</li>
+                </ul>
+              </section>
+              <section>
+                <h4>涉及数据</h4>
+                <div class="tag-list">
+                  <span v-for="text in item.data" :key="text">{{ text }}</span>
+                </div>
+              </section>
+            </div>
+          </article>
+        </div>
+      </section>
+
+      <section v-if="currentPage === 'mood'" class="module-panel page-panel">
+        <h3>情绪打卡记录</h3>
+        <form v-if="canWrite" class="module-form" @submit.prevent="submitMood">
+          <label>今日情绪<input v-model="moodForm.mood" /></label>
+          <label>情绪强度<input v-model="moodForm.intensity" type="range" min="1" max="10" /></label>
+          <label>睡眠质量<input v-model="moodForm.sleep_quality" type="range" min="1" max="10" /></label>
+          <label>压力来源<input v-model="moodForm.pressure_sources" /></label>
+          <label class="full">日记<textarea v-model="moodForm.note"></textarea></label>
+          <button class="solid-button large" type="submit">保存打卡</button>
+        </form>
+        <p v-if="moduleMessage" class="module-message">{{ moduleMessage }}</p>
+        <div class="module-list">
+          <article v-for="item in moduleData?.moods" :key="item.id">
+            <strong>{{ item.student_name }}：{{ item.mood }} {{ item.intensity }}/10</strong>
+            <p>{{ item.note || '暂无日记内容' }}</p>
+            <button v-if="canManage" class="danger-button" type="button" @click="adminDelete(`/api/mood-entries/${item.id}/`)">删除</button>
+          </article>
+        </div>
+      </section>
+
+      <section v-if="currentPage === 'treehole'" class="module-panel page-panel">
+        <h3>匿名树洞</h3>
+        <form v-if="canWrite" class="module-form" @submit.prevent="submitTreehole">
+          <label>分类
+            <select v-model="treeholeForm.category">
+              <option value="study">学业压力</option>
+              <option value="relationship">人际关系</option>
+              <option value="family">家庭关系</option>
+              <option value="growth">自我成长</option>
+              <option value="other">其他</option>
+            </select>
+          </label>
+          <label>情绪标签<input v-model="treeholeForm.mood_tag" /></label>
+          <label class="full">匿名内容<textarea v-model="treeholeForm.content" required></textarea></label>
+          <button class="solid-button large" type="submit">发布树洞</button>
+        </form>
+        <p v-if="moduleMessage" class="module-message">{{ moduleMessage }}</p>
+        <div class="treehole-list">
+          <article v-for="post in moduleData?.treeholes" :key="post.id" class="treehole-post">
+            <span>{{ post.student_name }} · {{ post.mood_tag || '未标记' }}</span>
+            <p>{{ post.content }}</p>
+            <div class="reply-list">
+              <p v-for="reply in post.replies" :key="reply.id">{{ reply.responder_name }}：{{ reply.content }}</p>
+            </div>
+            <form v-if="canWrite" class="reply-form" @submit.prevent="submitReply(post.id)">
+              <input v-model="replyForms[post.id]" placeholder="写一句温和回应" />
+              <button type="submit">回应</button>
+            </form>
+            <div v-if="canManage" class="admin-actions">
+              <button type="button" @click="editTreehole(post)">编辑</button>
+              <button class="danger-button" type="button" @click="adminDelete(`/api/treehole-posts/${post.id}/`)">删除</button>
+            </div>
+          </article>
+        </div>
+      </section>
+
+      <section v-if="currentPage === 'assessment'" class="module-panel page-panel">
+        <h3>心理测评</h3>
+        <form v-if="canWrite" class="module-form" @submit.prevent="submitAssessment">
+          <label class="full">选择量表
+            <select v-model="assessmentForm.scale">
+              <option v-for="scale in moduleData?.scales" :key="scale.id" :value="scale.id">{{ scale.name }}</option>
+            </select>
+          </label>
+          <div class="question-list full">
+            <label v-for="(question, index) in moduleData?.scales?.find((item) => item.id == assessmentForm.scale)?.questions" :key="question.title">
+              {{ question.title }}
+              <input v-model="assessmentForm.answers[index]" type="range" min="0" max="10" />
+            </label>
+          </div>
+          <button class="solid-button large" type="submit">提交测评</button>
+        </form>
+        <p v-if="moduleMessage" class="module-message">{{ moduleMessage }}</p>
+        <div class="module-list">
+          <article v-for="record in moduleData?.records" :key="record.id">
+            <strong>{{ record.student_name }}：{{ record.scale_name }} {{ record.score }} 分</strong>
+            <p>{{ record.suggestion }}</p>
+            <button v-if="canManage" class="danger-button" type="button" @click="adminDelete(`/api/assessment-records/${record.id}/`)">删除</button>
+          </article>
+        </div>
+      </section>
+
+      <section v-if="currentPage === 'appointment'" class="module-panel page-panel">
+        <h3>咨询预约</h3>
+        <form v-if="canWrite" class="module-form" @submit.prevent="submitAppointment">
+          <label>咨询师
+            <select v-model="appointmentForm.counselor">
+              <option v-for="item in moduleData?.counselors" :key="item.id" :value="item.id">{{ item.name }} · {{ item.title }}</option>
+            </select>
+          </label>
+          <label>预约时间<input v-model="appointmentForm.scheduled_at" type="datetime-local" /></label>
+          <label class="full">咨询主题<input v-model="appointmentForm.topic" required /></label>
+          <label class="full">保密备注<textarea v-model="appointmentForm.confidential_note"></textarea></label>
+          <button class="solid-button large" type="submit">提交预约</button>
+        </form>
+        <p v-if="moduleMessage" class="module-message">{{ moduleMessage }}</p>
+        <div class="module-list">
+          <article v-for="item in moduleData?.appointments" :key="item.id">
+            <strong>{{ item.student_name }} → {{ item.counselor_name }} · {{ item.status }}</strong>
+            <p>{{ item.topic }} ｜ {{ item.scheduled_at }}</p>
+            <div v-if="canManage" class="admin-actions">
+              <button type="button" @click="editAppointment(item)">改状态</button>
+              <button class="danger-button" type="button" @click="adminDelete(`/api/appointments/${item.id}/`)">删除</button>
+            </div>
+          </article>
+        </div>
+      </section>
+
+      <section v-if="currentPage === 'resources'" class="module-panel page-panel">
+        <h3>心理资源</h3>
+        <div class="resource-grid">
+          <article v-for="article in articles" :key="article.id" class="resource-card" @click="openArticle(article)">
+            <span>{{ article.category }} · {{ article.source }}</span>
+            <h3>{{ article.title }}</h3>
+            <p>{{ article.summary }}</p>
+            <button v-if="canManage" class="danger-button" type="button" @click="adminDelete(`/api/articles/${article.id}/`)">删除</button>
+          </article>
+        </div>
+      </section>
+
+      <section v-if="currentPage === 'article'" class="article-detail module-panel page-panel">
+        <template v-if="currentArticle">
+          <span class="eyebrow">{{ currentArticle.category }} · {{ currentArticle.source }}</span>
+          <h2>{{ currentArticle.title }}</h2>
+          <p class="article-summary">{{ currentArticle.summary }}</p>
+          <div class="tag-list">
+            <span v-for="tag in currentArticle.tags" :key="tag">{{ tag }}</span>
+          </div>
+          <article class="article-content">
+            <p v-for="paragraph in currentArticle.content.split('\n').filter(Boolean)" :key="paragraph">{{ paragraph }}</p>
+          </article>
+          <div class="article-meta">
+            <span v-if="currentArticle.fetched_at">抓取时间：{{ currentArticle.fetched_at }}</span>
+            <a v-if="currentArticle.external_url" :href="currentArticle.external_url" target="_blank" rel="noreferrer">查看权威原文</a>
+          </div>
+        </template>
+        <template v-else>
+          <h2>未找到文章</h2>
+          <button class="outline-button large" type="button" @click="navigate('resources')">返回心理资源</button>
+        </template>
+      </section>
+
+      <section v-if="currentPage === 'alerts'" class="module-panel page-panel">
+        <h3>危机预警</h3>
+        <div class="module-list">
+          <article v-for="alert in moduleData?.alerts" :key="alert.id" class="alert-card">
+            <strong>{{ alert.student_name }} · {{ alert.level }}</strong>
+            <p>{{ alert.trigger }}</p>
+            <div v-if="canManage" class="admin-actions">
+              <button type="button" @click="editAlert(alert)">{{ alert.handled ? '标记未处理' : '标记已处理' }}</button>
+              <button class="danger-button" type="button" @click="adminDelete(`/api/crisis-alerts/${alert.id}/`)">删除</button>
+            </div>
+          </article>
+        </div>
+        <a class="outline-link admin-link" href="http://127.0.0.1:8000/admin/" target="_blank" rel="noreferrer">进入 Django 后台管理</a>
+      </section>
+    </main>
+
+    <footer v-if="currentPage === 'home'" class="site-footer">
       <div class="footer-inner">
         <div class="footer-brand">
           <img :src="logoMark" alt="" />

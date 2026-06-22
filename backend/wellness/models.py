@@ -10,6 +10,27 @@ class TimeStampedModel(models.Model):
         abstract = True
 
 
+class AccountProfile(TimeStampedModel):
+    ROLE_STUDENT = 'student'
+    ROLE_TEACHER = 'teacher'
+    ROLE_ADMIN = 'admin'
+    ROLE_CHOICES = [
+        (ROLE_STUDENT, '学生'),
+        (ROLE_TEACHER, '教师'),
+        (ROLE_ADMIN, '管理员'),
+    ]
+
+    user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='account_profile', verbose_name='用户')
+    role = models.CharField(max_length=16, choices=ROLE_CHOICES, default=ROLE_STUDENT, verbose_name='角色')
+
+    class Meta:
+        verbose_name = '账号角色'
+        verbose_name_plural = '账号角色'
+
+    def __str__(self):
+        return f'{self.user.username} - {self.get_role_display()}'
+
+
 class StudentProfile(TimeStampedModel):
     user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='student_profile', verbose_name='用户')
     student_no = models.CharField(max_length=32, unique=True, verbose_name='学号')
@@ -34,6 +55,9 @@ class Counselor(TimeStampedModel):
     qualifications = models.TextField(blank=True, verbose_name='资质说明')
     available_slots = models.JSONField(default=list, verbose_name='可预约时段')
     avatar_color = models.CharField(max_length=20, default='#d85d73', verbose_name='头像色')
+    source = models.CharField(max_length=120, blank=True, verbose_name='来源')
+    external_url = models.URLField(blank=True, verbose_name='外部链接')
+    fetched_at = models.DateTimeField(null=True, blank=True, verbose_name='抓取时间')
     is_active = models.BooleanField(default=True, verbose_name='是否可预约')
 
     class Meta:
@@ -51,6 +75,8 @@ class Article(TimeStampedModel):
     summary = models.TextField(verbose_name='摘要')
     content = models.TextField(verbose_name='正文')
     tags = models.JSONField(default=list, blank=True, verbose_name='标签')
+    external_url = models.URLField(blank=True, verbose_name='外部链接')
+    fetched_at = models.DateTimeField(null=True, blank=True, verbose_name='抓取时间')
     is_published = models.BooleanField(default=True, verbose_name='是否发布')
 
     class Meta:
@@ -60,6 +86,48 @@ class Article(TimeStampedModel):
 
     def __str__(self):
         return self.title
+
+
+class ExternalResourceSource(TimeStampedModel):
+    name = models.CharField(max_length=120, verbose_name='源站名称')
+    url = models.URLField(unique=True, verbose_name='源站地址')
+    organization = models.CharField(max_length=120, blank=True, verbose_name='机构')
+    category = models.CharField(max_length=40, default='心理科普', verbose_name='默认分类')
+    tags = models.JSONField(default=list, blank=True, verbose_name='默认标签')
+    enabled = models.BooleanField(default=True, verbose_name='启用')
+    last_fetched_at = models.DateTimeField(null=True, blank=True, verbose_name='上次抓取时间')
+
+    class Meta:
+        verbose_name = '外部资源源站'
+        verbose_name_plural = '外部资源源站'
+
+    def __str__(self):
+        return self.name
+
+
+class ResourceFetchLog(TimeStampedModel):
+    STATUS_SUCCESS = 'success'
+    STATUS_FAILED = 'failed'
+    STATUS_SKIPPED = 'skipped'
+    STATUS_CHOICES = [
+        (STATUS_SUCCESS, '成功'),
+        (STATUS_FAILED, '失败'),
+        (STATUS_SKIPPED, '跳过'),
+    ]
+
+    source = models.ForeignKey(ExternalResourceSource, on_delete=models.CASCADE, related_name='fetch_logs', verbose_name='源站')
+    status = models.CharField(max_length=16, choices=STATUS_CHOICES, verbose_name='状态')
+    message = models.TextField(blank=True, verbose_name='信息')
+    articles_created = models.PositiveIntegerField(default=0, verbose_name='新增文章数')
+    articles_updated = models.PositiveIntegerField(default=0, verbose_name='更新文章数')
+
+    class Meta:
+        verbose_name = '资源抓取记录'
+        verbose_name_plural = '资源抓取记录'
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f'{self.source.name} - {self.get_status_display()}'
 
 
 class AssessmentScale(TimeStampedModel):
@@ -119,6 +187,47 @@ class MoodEntry(TimeStampedModel):
 
     def __str__(self):
         return f'{self.student} {self.mood} {self.intensity}'
+
+
+class TreeHolePost(TimeStampedModel):
+    CATEGORY_CHOICES = [
+        ('study', '学业压力'),
+        ('relationship', '人际关系'),
+        ('family', '家庭关系'),
+        ('growth', '自我成长'),
+        ('other', '其他'),
+    ]
+
+    student = models.ForeignKey(StudentProfile, on_delete=models.SET_NULL, null=True, blank=True, related_name='treehole_posts', verbose_name='学生')
+    category = models.CharField(max_length=24, choices=CATEGORY_CHOICES, default='other', verbose_name='分类')
+    content = models.TextField(verbose_name='倾诉内容')
+    mood_tag = models.CharField(max_length=30, blank=True, verbose_name='情绪标签')
+    is_anonymous = models.BooleanField(default=True, verbose_name='是否匿名')
+    support_count = models.PositiveIntegerField(default=0, verbose_name='支持数')
+    risk_flag = models.BooleanField(default=False, verbose_name='风险标记')
+
+    class Meta:
+        verbose_name = '匿名树洞'
+        verbose_name_plural = '匿名树洞'
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f'{self.get_category_display()} - {self.content[:18]}'
+
+
+class TreeHoleReply(TimeStampedModel):
+    post = models.ForeignKey(TreeHolePost, on_delete=models.CASCADE, related_name='replies', verbose_name='树洞')
+    responder_name = models.CharField(max_length=40, default='同伴支持者', verbose_name='回应者')
+    content = models.TextField(verbose_name='回应内容')
+    is_counselor_reply = models.BooleanField(default=False, verbose_name='咨询师回应')
+
+    class Meta:
+        verbose_name = '树洞回应'
+        verbose_name_plural = '树洞回应'
+        ordering = ['created_at']
+
+    def __str__(self):
+        return f'{self.responder_name}: {self.content[:18]}'
 
 
 class Appointment(TimeStampedModel):

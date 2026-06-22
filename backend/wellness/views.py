@@ -1,22 +1,29 @@
 from collections import Counter
+from datetime import timedelta
 
 from django.contrib.auth import authenticate, login, logout
 from django.contrib.auth.models import User
 from django.db.models import Avg, Count
 from django.utils import timezone
 from rest_framework import status, viewsets
+from rest_framework.authentication import SessionAuthentication
 from rest_framework.decorators import api_view, authentication_classes
 from rest_framework.response import Response
 
 from .models import (
+    AccountProfile,
     Appointment,
     Article,
     AssessmentRecord,
     AssessmentScale,
     Counselor,
     CrisisAlert,
+    ExternalResourceSource,
     MoodEntry,
+    ResourceFetchLog,
     StudentProfile,
+    TreeHolePost,
+    TreeHoleReply,
 )
 from .serializers import (
     AppointmentSerializer,
@@ -25,9 +32,48 @@ from .serializers import (
     AssessmentScaleSerializer,
     CounselorSerializer,
     CrisisAlertSerializer,
+    ExternalResourceSourceSerializer,
     MoodEntrySerializer,
+    ResourceFetchLogSerializer,
     StudentProfileSerializer,
+    TreeHolePostSerializer,
+    TreeHoleReplySerializer,
 )
+
+
+RISK_KEYWORDS = ['自伤', '自杀', '不想活', '结束生命', '伤害自己', '活不下去']
+
+
+class CsrfExemptSessionAuthentication(SessionAuthentication):
+    def enforce_csrf(self, request):
+        return
+
+
+ROLE_MAP = {
+    '学生': AccountProfile.ROLE_STUDENT,
+    '心理老师': AccountProfile.ROLE_TEACHER,
+    '教师': AccountProfile.ROLE_TEACHER,
+    '管理员': AccountProfile.ROLE_ADMIN,
+}
+
+
+def user_role(user):
+    if not user.is_authenticated:
+        return 'guest'
+    if user.is_superuser or user.is_staff:
+        return AccountProfile.ROLE_ADMIN
+    profile = getattr(user, 'account_profile', None)
+    return profile.role if profile else AccountProfile.ROLE_STUDENT
+
+
+def require_write_role(request, allow_admin=True):
+    role = user_role(request.user)
+    allowed = [AccountProfile.ROLE_STUDENT]
+    if allow_admin:
+        allowed.append(AccountProfile.ROLE_ADMIN)
+    if role not in allowed:
+        return Response({'detail': '当前角色只能浏览数据，不能新增或修改。'}, status=status.HTTP_403_FORBIDDEN)
+    return None
 
 
 def serialize_user(user):
@@ -37,47 +83,168 @@ def serialize_user(user):
         'name': user.get_full_name() or user.username,
         'email': user.email,
         'is_staff': user.is_staff,
+        'role': user_role(user),
     }
 
 
 class StudentProfileViewSet(viewsets.ModelViewSet):
+    authentication_classes = [CsrfExemptSessionAuthentication]
     queryset = StudentProfile.objects.select_related('user').all()
     serializer_class = StudentProfileSerializer
 
+    def get_permissions(self):
+        if self.request.method in ['GET', 'HEAD', 'OPTIONS']:
+            return []
+        return super().get_permissions()
+
+    def initial(self, request, *args, **kwargs):
+        super().initial(request, *args, **kwargs)
+        if request.method not in ['GET', 'HEAD', 'OPTIONS'] and user_role(request.user) != AccountProfile.ROLE_ADMIN:
+            self.permission_denied(request, message='只有管理员可以维护基础数据。')
+
 
 class CounselorViewSet(viewsets.ModelViewSet):
+    authentication_classes = [CsrfExemptSessionAuthentication]
     queryset = Counselor.objects.all()
     serializer_class = CounselorSerializer
 
+    def initial(self, request, *args, **kwargs):
+        super().initial(request, *args, **kwargs)
+        if request.method not in ['GET', 'HEAD', 'OPTIONS'] and user_role(request.user) != AccountProfile.ROLE_ADMIN:
+            self.permission_denied(request, message='只有管理员可以维护基础数据。')
+
 
 class ArticleViewSet(viewsets.ModelViewSet):
+    authentication_classes = [CsrfExemptSessionAuthentication]
     queryset = Article.objects.filter(is_published=True)
     serializer_class = ArticleSerializer
 
+    def initial(self, request, *args, **kwargs):
+        super().initial(request, *args, **kwargs)
+        if request.method not in ['GET', 'HEAD', 'OPTIONS'] and user_role(request.user) != AccountProfile.ROLE_ADMIN:
+            self.permission_denied(request, message='只有管理员可以维护基础数据。')
+
+
+class ExternalResourceSourceViewSet(viewsets.ModelViewSet):
+    authentication_classes = [CsrfExemptSessionAuthentication]
+    queryset = ExternalResourceSource.objects.all()
+    serializer_class = ExternalResourceSourceSerializer
+
+    def initial(self, request, *args, **kwargs):
+        super().initial(request, *args, **kwargs)
+        if request.method not in ['GET', 'HEAD', 'OPTIONS'] and user_role(request.user) != AccountProfile.ROLE_ADMIN:
+            self.permission_denied(request, message='只有管理员可以维护外部资源源站。')
+
+
+class ResourceFetchLogViewSet(viewsets.ReadOnlyModelViewSet):
+    queryset = ResourceFetchLog.objects.select_related('source').all()
+    serializer_class = ResourceFetchLogSerializer
+
 
 class AssessmentScaleViewSet(viewsets.ModelViewSet):
+    authentication_classes = [CsrfExemptSessionAuthentication]
     queryset = AssessmentScale.objects.all()
     serializer_class = AssessmentScaleSerializer
 
+    def initial(self, request, *args, **kwargs):
+        super().initial(request, *args, **kwargs)
+        if request.method not in ['GET', 'HEAD', 'OPTIONS'] and user_role(request.user) != AccountProfile.ROLE_ADMIN:
+            self.permission_denied(request, message='只有管理员可以维护基础数据。')
+
 
 class AssessmentRecordViewSet(viewsets.ModelViewSet):
+    authentication_classes = [CsrfExemptSessionAuthentication]
     queryset = AssessmentRecord.objects.select_related('student__user', 'scale').all()
     serializer_class = AssessmentRecordSerializer
 
+    def initial(self, request, *args, **kwargs):
+        super().initial(request, *args, **kwargs)
+        if request.method not in ['GET', 'HEAD', 'OPTIONS'] and user_role(request.user) != AccountProfile.ROLE_ADMIN:
+            self.permission_denied(request, message='只有管理员可以维护基础数据。')
+
 
 class MoodEntryViewSet(viewsets.ModelViewSet):
+    authentication_classes = [CsrfExemptSessionAuthentication]
     queryset = MoodEntry.objects.select_related('student__user').all()
     serializer_class = MoodEntrySerializer
 
+    def initial(self, request, *args, **kwargs):
+        super().initial(request, *args, **kwargs)
+        if request.method not in ['GET', 'HEAD', 'OPTIONS'] and user_role(request.user) != AccountProfile.ROLE_ADMIN:
+            self.permission_denied(request, message='只有管理员可以维护基础数据。')
+
 
 class AppointmentViewSet(viewsets.ModelViewSet):
+    authentication_classes = [CsrfExemptSessionAuthentication]
     queryset = Appointment.objects.select_related('student__user', 'counselor').all()
     serializer_class = AppointmentSerializer
 
+    def initial(self, request, *args, **kwargs):
+        super().initial(request, *args, **kwargs)
+        if request.method not in ['GET', 'HEAD', 'OPTIONS'] and user_role(request.user) != AccountProfile.ROLE_ADMIN:
+            self.permission_denied(request, message='只有管理员可以维护基础数据。')
+
 
 class CrisisAlertViewSet(viewsets.ModelViewSet):
+    authentication_classes = [CsrfExemptSessionAuthentication]
     queryset = CrisisAlert.objects.select_related('student__user').all()
     serializer_class = CrisisAlertSerializer
+
+    def initial(self, request, *args, **kwargs):
+        super().initial(request, *args, **kwargs)
+        if request.method not in ['GET', 'HEAD', 'OPTIONS'] and user_role(request.user) != AccountProfile.ROLE_ADMIN:
+            self.permission_denied(request, message='只有管理员可以维护基础数据。')
+
+
+class TreeHolePostViewSet(viewsets.ModelViewSet):
+    authentication_classes = [CsrfExemptSessionAuthentication]
+    queryset = TreeHolePost.objects.select_related('student__user').prefetch_related('replies').all()
+    serializer_class = TreeHolePostSerializer
+
+    def initial(self, request, *args, **kwargs):
+        super().initial(request, *args, **kwargs)
+        if request.method not in ['GET', 'HEAD', 'OPTIONS'] and user_role(request.user) != AccountProfile.ROLE_ADMIN:
+            self.permission_denied(request, message='只有管理员可以维护基础数据。')
+
+
+class TreeHoleReplyViewSet(viewsets.ModelViewSet):
+    authentication_classes = [CsrfExemptSessionAuthentication]
+    queryset = TreeHoleReply.objects.select_related('post').all()
+    serializer_class = TreeHoleReplySerializer
+
+    def initial(self, request, *args, **kwargs):
+        super().initial(request, *args, **kwargs)
+        if request.method not in ['GET', 'HEAD', 'OPTIONS'] and user_role(request.user) != AccountProfile.ROLE_ADMIN:
+            self.permission_denied(request, message='只有管理员可以维护基础数据。')
+
+
+def get_request_student(request):
+    if request.user.is_authenticated and user_role(request.user) == AccountProfile.ROLE_STUDENT:
+        profile, _ = StudentProfile.objects.get_or_create(
+            user=request.user,
+            defaults={
+                'student_no': request.user.username,
+                'privacy_consent': True,
+                'pressure_sources': [],
+                'preferred_topics': [],
+            },
+        )
+        return profile
+    return StudentProfile.objects.select_related('user').first()
+
+
+def contains_risk_text(text):
+    return any(keyword in (text or '') for keyword in RISK_KEYWORDS)
+
+
+def create_alert_if_needed(student, trigger, text, level='warning'):
+    if student and contains_risk_text(text):
+        CrisisAlert.objects.create(
+            student=student,
+            level=level,
+            trigger=trigger,
+            handled=False,
+        )
 
 
 @api_view(['GET'])
@@ -160,6 +327,157 @@ def counselor_recommendations(request):
 
 
 @api_view(['GET'])
+def module_center(request):
+    role = user_role(request.user)
+    student = get_request_student(request) if role == AccountProfile.ROLE_STUDENT else None
+    mood_queryset = MoodEntry.objects.all() if not student else MoodEntry.objects.filter(student=student)
+    record_queryset = AssessmentRecord.objects.all() if not student else AssessmentRecord.objects.filter(student=student)
+    appointment_queryset = Appointment.objects.all() if not student else Appointment.objects.filter(student=student)
+    return Response({
+        'student': StudentProfileSerializer(student).data if student else None,
+        'role': role,
+        'moods': MoodEntrySerializer(mood_queryset[:12], many=True).data,
+        'treeholes': TreeHolePostSerializer(TreeHolePost.objects.prefetch_related('replies')[:8], many=True).data,
+        'scales': AssessmentScaleSerializer(AssessmentScale.objects.all(), many=True).data,
+        'records': AssessmentRecordSerializer(record_queryset[:12], many=True).data,
+        'appointments': AppointmentSerializer(appointment_queryset[:12], many=True).data,
+        'counselors': CounselorSerializer(Counselor.objects.filter(is_active=True), many=True).data,
+        'alerts': CrisisAlertSerializer(CrisisAlert.objects.filter(handled=False)[:6], many=True).data,
+    })
+
+
+@api_view(['POST'])
+@authentication_classes([CsrfExemptSessionAuthentication])
+def submit_mood_entry(request):
+    denied = require_write_role(request)
+    if denied:
+        return denied
+    student = get_request_student(request)
+    if not student:
+        return Response({'detail': '请先创建学生账号。'}, status=status.HTTP_400_BAD_REQUEST)
+
+    entry = MoodEntry.objects.create(
+        student=student,
+        mood=request.data.get('mood') or '平静',
+        intensity=int(request.data.get('intensity') or 5),
+        sleep_quality=int(request.data.get('sleep_quality') or 5),
+        pressure_sources=request.data.get('pressure_sources') or [],
+        note=request.data.get('note') or '',
+        is_private=bool(request.data.get('is_private', True)),
+    )
+    create_alert_if_needed(student, '情绪日记中出现高风险表达', entry.note, 'critical')
+    if entry.intensity <= 2:
+        CrisisAlert.objects.create(student=student, level='notice', trigger='情绪强度低于 3，建议关注。')
+    return Response(MoodEntrySerializer(entry).data, status=status.HTTP_201_CREATED)
+
+
+@api_view(['POST'])
+@authentication_classes([CsrfExemptSessionAuthentication])
+def submit_assessment(request):
+    denied = require_write_role(request)
+    if denied:
+        return denied
+    student = get_request_student(request)
+    scale = AssessmentScale.objects.filter(id=request.data.get('scale')).first() or AssessmentScale.objects.first()
+    answers = request.data.get('answers') or []
+    if not student or not scale:
+        return Response({'detail': '缺少学生档案或量表。'}, status=status.HTTP_400_BAD_REQUEST)
+
+    score = sum(int(item or 0) for item in answers)
+    ratio = score / max(scale.max_score, 1)
+    if ratio >= 0.65:
+        risk_level = 'high'
+        suggestion = '当前得分偏高，建议尽快预约心理老师，并持续记录情绪变化。'
+    elif ratio >= 0.35:
+        risk_level = 'medium'
+        suggestion = '当前存在一定压力信号，建议尝试放松练习并观察一周。'
+    else:
+        risk_level = 'low'
+        suggestion = '当前风险较低，可以继续保持规律作息和自我照顾。'
+
+    record = AssessmentRecord.objects.create(
+        student=student,
+        scale=scale,
+        score=score,
+        risk_level=risk_level,
+        answers=answers,
+        suggestion=suggestion,
+    )
+    if risk_level == 'high':
+        CrisisAlert.objects.create(student=student, level='warning', trigger=f'{scale.name} 得分较高，需要跟进。')
+    return Response(AssessmentRecordSerializer(record).data, status=status.HTTP_201_CREATED)
+
+
+@api_view(['POST'])
+@authentication_classes([CsrfExemptSessionAuthentication])
+def create_appointment(request):
+    denied = require_write_role(request)
+    if denied:
+        return denied
+    student = get_request_student(request)
+    counselor = Counselor.objects.filter(id=request.data.get('counselor')).first()
+    if not student or not counselor:
+        return Response({'detail': '请选择咨询师。'}, status=status.HTTP_400_BAD_REQUEST)
+
+    scheduled_at = request.data.get('scheduled_at')
+    if not scheduled_at:
+        scheduled_at = timezone.now() + timedelta(days=1)
+
+    appointment = Appointment.objects.create(
+        student=student,
+        counselor=counselor,
+        scheduled_at=scheduled_at,
+        topic=request.data.get('topic') or '心理支持预约',
+        confidential_note=request.data.get('confidential_note') or '',
+    )
+    create_alert_if_needed(student, '预约备注中出现高风险表达', appointment.confidential_note, 'critical')
+    return Response(AppointmentSerializer(appointment).data, status=status.HTTP_201_CREATED)
+
+
+@api_view(['POST'])
+@authentication_classes([CsrfExemptSessionAuthentication])
+def publish_treehole(request):
+    denied = require_write_role(request)
+    if denied:
+        return denied
+    student = get_request_student(request)
+    content = request.data.get('content') or ''
+    if not content.strip():
+        return Response({'detail': '请填写想表达的内容。'}, status=status.HTTP_400_BAD_REQUEST)
+
+    post = TreeHolePost.objects.create(
+        student=student,
+        category=request.data.get('category') or 'other',
+        content=content,
+        mood_tag=request.data.get('mood_tag') or '',
+        is_anonymous=bool(request.data.get('is_anonymous', True)),
+        risk_flag=contains_risk_text(content),
+    )
+    create_alert_if_needed(student, '匿名树洞中出现高风险表达', content, 'critical')
+    return Response(TreeHolePostSerializer(post).data, status=status.HTTP_201_CREATED)
+
+
+@api_view(['POST'])
+@authentication_classes([CsrfExemptSessionAuthentication])
+def reply_treehole(request, post_id):
+    denied = require_write_role(request)
+    if denied:
+        return denied
+    post = TreeHolePost.objects.filter(id=post_id).first()
+    content = request.data.get('content') or ''
+    if not post or not content.strip():
+        return Response({'detail': '请选择树洞并填写回应。'}, status=status.HTTP_400_BAD_REQUEST)
+
+    reply = TreeHoleReply.objects.create(
+        post=post,
+        responder_name=request.data.get('responder_name') or '同伴支持者',
+        content=content,
+        is_counselor_reply=bool(request.data.get('is_counselor_reply', False)),
+    )
+    return Response(TreeHoleReplySerializer(reply).data, status=status.HTTP_201_CREATED)
+
+
+@api_view(['GET'])
 def current_user(request):
     if not request.user.is_authenticated:
         return Response({'authenticated': False})
@@ -187,7 +505,10 @@ def register_user(request):
 
     user = User.objects.create_user(username=username, password=password)
     user.first_name = username
+    if role == '管理员':
+        user.is_staff = True
     user.save()
+    AccountProfile.objects.create(user=user, role=ROLE_MAP.get(role, AccountProfile.ROLE_STUDENT))
 
     if role == '学生':
         StudentProfile.objects.create(

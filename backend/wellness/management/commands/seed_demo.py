@@ -1,18 +1,23 @@
 from datetime import timedelta
+from random import choice, randint
 
 from django.contrib.auth.models import User
 from django.core.management.base import BaseCommand
 from django.utils import timezone
 
 from wellness.models import (
+    AccountProfile,
     Appointment,
     Article,
     AssessmentRecord,
     AssessmentScale,
     Counselor,
     CrisisAlert,
+    ExternalResourceSource,
     MoodEntry,
     StudentProfile,
+    TreeHolePost,
+    TreeHoleReply,
 )
 
 
@@ -30,6 +35,7 @@ class Command(BaseCommand):
         )
         user.set_password('student001')
         user.save()
+        AccountProfile.objects.update_or_create(user=user, defaults={'role': 'student'})
 
         student, _ = StudentProfile.objects.update_or_create(
             user=user,
@@ -42,6 +48,14 @@ class Command(BaseCommand):
                 'preferred_topics': ['情绪调节', '压力管理'],
             },
         )
+
+        teacher, _ = User.objects.update_or_create(
+            username='teacher001',
+            defaults={'first_name': '心理', 'last_name': '老师', 'email': 'teacher001@example.com'},
+        )
+        teacher.set_password('teacher001')
+        teacher.save()
+        AccountProfile.objects.update_or_create(user=teacher, defaults={'role': 'teacher'})
 
         counselors = [
             {
@@ -103,6 +117,49 @@ class Command(BaseCommand):
         for item in articles:
             Article.objects.update_or_create(title=item['title'], defaults=item)
 
+        extra_articles = [
+            ('考试周如何安排睡眠', '睡眠支持', ['睡眠', '考试周']),
+            ('关系冲突后的自我安顿', '人际关系', ['人际关系', '沟通']),
+            ('三分钟呼吸放松练习', '情绪调节', ['呼吸练习', '自助']),
+        ]
+        for title, category, tags in extra_articles:
+            Article.objects.update_or_create(
+                title=title,
+                defaults={
+                    'source': '校园心理中心',
+                    'category': category,
+                    'summary': f'{title} 的简明自助建议。',
+                    'content': '先觉察身体感受，再选择一个可以完成的小行动，必要时主动求助。',
+                    'tags': tags,
+                },
+            )
+
+        external_sources = [
+            {
+                'name': 'NIMH 心理健康主题',
+                'url': 'https://www.nimh.nih.gov/health/topics',
+                'organization': 'National Institute of Mental Health',
+                'category': '权威科普',
+                'tags': ['NIMH', '心理健康', '精神健康'],
+            },
+            {
+                'name': 'CDC 心理健康',
+                'url': 'https://www.cdc.gov/mental-health/index.html',
+                'organization': 'Centers for Disease Control and Prevention',
+                'category': '权威科普',
+                'tags': ['CDC', '心理健康', '公共卫生'],
+            },
+            {
+                'name': 'APA 心理主题',
+                'url': 'https://www.apa.org/topics',
+                'organization': 'American Psychological Association',
+                'category': '权威科普',
+                'tags': ['APA', '心理学', '心理科普'],
+            },
+        ]
+        for item in external_sources:
+            ExternalResourceSource.objects.update_or_create(url=item['url'], defaults=item)
+
         scale, _ = AssessmentScale.objects.update_or_create(
             code='SAS-DEMO',
             defaults={
@@ -112,6 +169,19 @@ class Command(BaseCommand):
                     {'title': '最近一周我经常感到紧张', 'options': [0, 1, 2, 3]},
                     {'title': '我难以放松下来', 'options': [0, 1, 2, 3]},
                     {'title': '我担心事情会变糟', 'options': [0, 1, 2, 3]},
+                ],
+                'max_score': 30,
+            },
+        )
+        sleep_scale, _ = AssessmentScale.objects.update_or_create(
+            code='SLEEP-DEMO',
+            defaults={
+                'name': '睡眠状态自评简表',
+                'description': '用于了解近期睡眠质量的非诊断性量表。',
+                'questions': [
+                    {'title': '最近我入睡比较困难', 'options': [0, 1, 2, 3]},
+                    {'title': '夜间醒来后难以再次入睡', 'options': [0, 1, 2, 3]},
+                    {'title': '白天经常感到困倦', 'options': [0, 1, 2, 3]},
                 ],
                 'max_score': 30,
             },
@@ -150,6 +220,17 @@ class Command(BaseCommand):
                 'suggestion': '建议继续观察一周情绪变化，并预约一次支持性咨询。',
             },
         )
+        for idx, target_scale in enumerate([scale, sleep_scale]):
+            AssessmentRecord.objects.update_or_create(
+                student=student,
+                scale=target_scale,
+                score=12 + idx * 5,
+                defaults={
+                    'risk_level': 'medium' if idx == 0 else 'low',
+                    'answers': [randint(1, 5), randint(1, 5), randint(1, 5)],
+                    'suggestion': '建议结合情绪日记继续观察，并在需要时预约咨询。',
+                },
+            )
 
         Appointment.objects.update_or_create(
             student=student,
@@ -161,6 +242,17 @@ class Command(BaseCommand):
                 'confidential_note': '学生希望讨论近期备考压力。',
             },
         )
+        for idx, counselor in enumerate(counselor_objects[1:], start=1):
+            Appointment.objects.update_or_create(
+                student=student,
+                counselor=counselor,
+                scheduled_at=now + timedelta(days=idx + 3, hours=idx),
+                defaults={
+                    'topic': choice(['人际关系支持', '睡眠与压力调整', '自我成长困惑']),
+                    'status': choice(['pending', 'confirmed']),
+                    'confidential_note': '演示预约数据。',
+                },
+            )
 
         CrisisAlert.objects.update_or_create(
             student=student,
@@ -172,9 +264,51 @@ class Command(BaseCommand):
             },
         )
 
+        treehole, _ = TreeHolePost.objects.update_or_create(
+            student=student,
+            content='最近课程和项目堆在一起，有点担心自己处理不好。',
+            defaults={
+                'category': 'study',
+                'mood_tag': '焦虑',
+                'is_anonymous': True,
+                'support_count': 6,
+                'risk_flag': False,
+            },
+        )
+        TreeHoleReply.objects.update_or_create(
+            post=treehole,
+            responder_name='同伴支持者',
+            content='可以先把最急的一件事写下来，今晚只处理一个小步骤。',
+            defaults={'is_counselor_reply': False},
+        )
+        samples = [
+            ('relationship', '委屈', '和室友沟通不太顺利，不知道怎么开口比较好。'),
+            ('growth', '迷茫', '最近对未来方向有点不确定，想慢慢理清自己真正想要什么。'),
+            ('study', '疲惫', '连续几天赶作业，感觉脑子一直停不下来。'),
+        ]
+        for category, mood_tag, content in samples:
+            post, _ = TreeHolePost.objects.update_or_create(
+                student=student,
+                content=content,
+                defaults={
+                    'category': category,
+                    'mood_tag': mood_tag,
+                    'is_anonymous': True,
+                    'support_count': randint(2, 12),
+                    'risk_flag': False,
+                },
+            )
+            TreeHoleReply.objects.update_or_create(
+                post=post,
+                responder_name=choice(['同伴支持者', '值班老师', '心理委员']),
+                content=choice(['谢谢你愿意说出来，可以先照顾好今晚的休息。', '这件事听起来不容易，建议把它拆成一个小步骤。', '如果这种感受持续，可以预约老师一起聊聊。']),
+                defaults={'is_counselor_reply': False},
+            )
+
         admin, created = User.objects.get_or_create(username='admin', defaults={'is_staff': True, 'is_superuser': True})
         if created:
             admin.set_password('admin123456')
             admin.save()
+        AccountProfile.objects.update_or_create(user=admin, defaults={'role': 'admin'})
 
-        self.stdout.write(self.style.SUCCESS('演示数据已创建：admin/admin123456，student001/student001'))
+        self.stdout.write(self.style.SUCCESS('演示数据已创建：admin/admin123456，student001/student001，teacher001/teacher001'))

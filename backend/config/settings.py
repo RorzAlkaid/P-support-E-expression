@@ -31,9 +31,10 @@ ALLOWED_HOSTS = []
 # Application definition
 
 INSTALLED_APPS = [
+    'simpleui',
     'corsheaders',
     'rest_framework',
-    'wellness',
+    'wellness.apps.WellnessConfig',
     'django.contrib.admin',
     'django.contrib.auth',
     'django.contrib.contenttypes',
@@ -136,4 +137,51 @@ REST_FRAMEWORK = {
     ],
     'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.PageNumberPagination',
     'PAGE_SIZE': 10,
+}
+
+SIMPLEUI_HOME_TITLE = '心理支持平台后台'
+SIMPLEUI_HOME_ICON = 'fa fa-heart'
+SIMPLEUI_INDEX = '后台首页'
+SIMPLEUI_HOME_INFO = False
+SIMPLEUI_ANALYSIS = False
+SIMPLEUI_LOGO = False
+SIMPLEUI_DEFAULT_THEME = 'layui.css'
+SIMPLEUI_CONFIG = {
+    'system_keep': False,
+    'menu_display': ['账号与权限', '心理服务管理', '内容与数据管理'],
+    'menus': [
+        {
+            'name': '账号与权限',
+            'icon': 'fas fa-user-shield',
+            'models': [
+                {'name': '用户', 'icon': 'fas fa-user', 'url': 'auth/user/'},
+                {'name': '用户组', 'icon': 'fas fa-users', 'url': 'auth/group/'},
+                {'name': '账号角色', 'icon': 'fas fa-id-card', 'url': 'wellness/accountprofile/'},
+                {'name': '学生档案', 'icon': 'fas fa-address-card', 'url': 'wellness/studentprofile/'},
+            ],
+        },
+        {
+            'name': '心理服务管理',
+            'icon': 'fas fa-hand-holding-heart',
+            'models': [
+                {'name': '咨询师', 'icon': 'fas fa-user-md', 'url': 'wellness/counselor/'},
+                {'name': '咨询预约', 'icon': 'fas fa-calendar-check', 'url': 'wellness/appointment/'},
+                {'name': '情绪日记', 'icon': 'fas fa-smile', 'url': 'wellness/moodentry/'},
+                {'name': '匿名树洞', 'icon': 'fas fa-comment-dots', 'url': 'wellness/treeholepost/'},
+                {'name': '树洞回应', 'icon': 'fas fa-reply', 'url': 'wellness/treeholereply/'},
+                {'name': '危机预警', 'icon': 'fas fa-exclamation-triangle', 'url': 'wellness/crisisalert/'},
+            ],
+        },
+        {
+            'name': '内容与数据管理',
+            'icon': 'fas fa-chart-line',
+            'models': [
+                {'name': '心理科普文章', 'icon': 'fas fa-book-open', 'url': 'wellness/article/'},
+                {'name': '外部资源源站', 'icon': 'fas fa-globe', 'url': 'wellness/externalresourcesource/'},
+                {'name': '资源抓取记录', 'icon': 'fas fa-history', 'url': 'wellness/resourcefetchlog/'},
+                {'name': '心理量表', 'icon': 'fas fa-clipboard-list', 'url': 'wellness/assessmentscale/'},
+                {'name': '量表记录', 'icon': 'fas fa-poll', 'url': 'wellness/assessmentrecord/'},
+            ],
+        },
+    ],
 }
