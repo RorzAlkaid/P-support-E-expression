@@ -1,5 +1,7 @@
 <script setup>
-import { onMounted, onUnmounted, ref } from 'vue'
+import axios from 'axios'
+import * as echarts from 'echarts'
+import { nextTick, onMounted, onUnmounted, ref } from 'vue'
 import heroImage from './assets/landing-hero.png'
 import logoMark from './assets/xinqing-logo-mark.svg'
 
@@ -9,6 +11,23 @@ const inkX = ref('50vw')
 const inkY = ref('28vh')
 const inkActive = ref(0.38)
 const scrollShift = ref('0px')
+const loading = ref(true)
+const dashboard = ref(null)
+const moodTrend = ref([])
+const pressureData = ref([])
+const counselors = ref([])
+const articles = ref([])
+const trendChartRef = ref(null)
+const pressureChartRef = ref(null)
+const currentUser = ref(null)
+const authSubmitting = ref(false)
+const authMessage = ref('')
+const authForm = ref({
+  username: '',
+  password: '',
+  confirmPassword: '',
+  role: '学生',
+})
 
 function handlePointerMove(event) {
   inkX.value = `${event.clientX}px`
@@ -25,8 +44,91 @@ function handleScroll() {
   scrollShift.value = `${shift.toFixed(2)}px`
 }
 
+async function loadBackendData() {
+  try {
+    const [dashboardRes, trendRes, pressureRes, counselorsRes, articlesRes] = await Promise.all([
+      axios.get('/api/dashboard/'),
+      axios.get('/api/mood-trend/'),
+      axios.get('/api/pressure-distribution/'),
+      axios.get('/api/recommendations/counselors/?student=1'),
+      axios.get('/api/articles/'),
+    ])
+
+    dashboard.value = dashboardRes.data
+    moodTrend.value = trendRes.data
+    pressureData.value = pressureRes.data
+    counselors.value = counselorsRes.data
+    articles.value = articlesRes.data.results ?? articlesRes.data
+    loading.value = false
+    await nextTick()
+    renderCharts()
+  } catch (error) {
+    loading.value = false
+    console.error('Django API 数据加载失败', error)
+  }
+}
+
+async function loadCurrentUser() {
+  const response = await axios.get('/api/auth/me/')
+  currentUser.value = response.data.authenticated ? response.data.user : null
+}
+
+function renderCharts() {
+  if (trendChartRef.value) {
+    const chart = echarts.init(trendChartRef.value)
+    chart.setOption({
+      tooltip: { trigger: 'axis' },
+      legend: { top: 0, data: ['情绪强度', '睡眠质量'] },
+      grid: { top: 44, right: 20, bottom: 28, left: 34 },
+      xAxis: { type: 'category', data: moodTrend.value.map((item) => item.date) },
+      yAxis: { type: 'value', min: 0, max: 10 },
+      series: [
+        {
+          name: '情绪强度',
+          type: 'line',
+          smooth: true,
+          data: moodTrend.value.map((item) => item.intensity),
+          lineStyle: { color: '#d85d73', width: 3 },
+          itemStyle: { color: '#d85d73' },
+          areaStyle: { color: 'rgba(216, 93, 115, 0.12)' },
+        },
+        {
+          name: '睡眠质量',
+          type: 'line',
+          smooth: true,
+          data: moodTrend.value.map((item) => item.sleep_quality),
+          lineStyle: { color: '#4c8f8a', width: 3 },
+          itemStyle: { color: '#4c8f8a' },
+        },
+      ],
+    })
+  }
+
+  if (pressureChartRef.value) {
+    const chart = echarts.init(pressureChartRef.value)
+    chart.setOption({
+      tooltip: {},
+      radar: {
+        indicator: pressureData.value.map((item) => ({ name: item.name, max: 8 })),
+        radius: '64%',
+      },
+      series: [
+        {
+          type: 'radar',
+          data: [{ value: pressureData.value.map((item) => item.value), name: '压力来源' }],
+          areaStyle: { color: 'rgba(240, 173, 99, 0.22)' },
+          lineStyle: { color: '#f0ad63', width: 3 },
+          itemStyle: { color: '#f0ad63' },
+        },
+      ],
+    })
+  }
+}
+
 onMounted(() => {
   handleScroll()
+  loadBackendData()
+  loadCurrentUser()
   window.addEventListener('pointermove', handlePointerMove)
   window.addEventListener('scroll', handleScroll, { passive: true })
 })
@@ -99,6 +201,37 @@ const steps = [
 function openAuth(mode) {
   authMode.value = mode
   showAuth.value = true
+  authMessage.value = ''
+  authForm.value.password = ''
+  authForm.value.confirmPassword = ''
+}
+
+async function submitAuth() {
+  authSubmitting.value = true
+  authMessage.value = ''
+
+  try {
+    const url = authMode.value === 'login' ? '/api/auth/login/' : '/api/auth/register/'
+    const payload = {
+      username: authForm.value.username,
+      password: authForm.value.password,
+      confirm_password: authForm.value.confirmPassword,
+      role: authForm.value.role,
+    }
+    const response = await axios.post(url, payload)
+    currentUser.value = response.data.user
+    authMessage.value = response.data.detail || '操作成功'
+    showAuth.value = false
+  } catch (error) {
+    authMessage.value = error.response?.data?.detail || '操作失败，请检查输入后重试。'
+  } finally {
+    authSubmitting.value = false
+  }
+}
+
+async function logoutAccount() {
+  await axios.post('/api/auth/logout/')
+  currentUser.value = null
 }
 </script>
 
@@ -123,14 +256,22 @@ function openAuth(mode) {
 
       <nav class="site-nav" aria-label="网站导航">
         <a href="#features">功能</a>
+        <a href="#insights">数据</a>
+        <a href="#support">咨询</a>
         <a href="#scenes">场景</a>
         <a href="#process">流程</a>
         <a href="#contact">开始使用</a>
       </nav>
 
       <div class="auth-actions">
-        <button class="text-button" type="button" @click="openAuth('login')">登录</button>
-        <button class="solid-button" type="button" @click="openAuth('register')">注册</button>
+        <template v-if="currentUser">
+          <span class="user-chip">{{ currentUser.name }}</span>
+          <button class="text-button" type="button" @click="logoutAccount">退出</button>
+        </template>
+        <template v-else>
+          <button class="text-button" type="button" @click="openAuth('login')">登录</button>
+          <button class="solid-button" type="button" @click="openAuth('register')">注册</button>
+        </template>
       </div>
     </header>
 
@@ -218,6 +359,87 @@ function openAuth(mode) {
         </div>
       </section>
 
+      <section id="insights" class="section insight-section scroll-follow follow-medium">
+        <div class="section-heading align-left wide-heading">
+          <span class="eyebrow">Django 数据驱动</span>
+          <h2>把心理状态转化为可理解的趋势</h2>
+          <p>下方数据来自 Django RESTful API，用于呈现情绪变化、压力来源、预警数量和资源更新情况。</p>
+        </div>
+
+        <div v-if="loading" class="data-loading">正在从后端加载数据...</div>
+        <template v-else>
+          <div class="data-metrics">
+            <article>
+              <span>学生档案</span>
+              <strong>{{ dashboard?.stats.students ?? 0 }}</strong>
+            </article>
+            <article>
+              <span>咨询师</span>
+              <strong>{{ dashboard?.stats.counselors ?? 0 }}</strong>
+            </article>
+            <article>
+              <span>心理资源</span>
+              <strong>{{ dashboard?.stats.articles ?? 0 }}</strong>
+            </article>
+            <article class="warning">
+              <span>未处理预警</span>
+              <strong>{{ dashboard?.stats.unhandled_alerts ?? 0 }}</strong>
+            </article>
+          </div>
+
+          <div class="chart-grid">
+            <article class="data-panel">
+              <h3>情绪与睡眠趋势</h3>
+              <div ref="trendChartRef" class="chart-box"></div>
+            </article>
+            <article class="data-panel">
+              <h3>压力来源雷达图</h3>
+              <div ref="pressureChartRef" class="chart-box"></div>
+            </article>
+          </div>
+        </template>
+      </section>
+
+      <section id="support" class="section support-section scroll-follow follow-deep">
+        <div class="section-heading align-left wide-heading">
+          <span class="eyebrow">专业对接</span>
+          <h2>基于学生偏好与压力来源推荐咨询师</h2>
+          <p>后端根据学生压力来源、关注主题与咨询师擅长领域计算匹配分，后续可替换为更完整的推荐算法。</p>
+        </div>
+
+        <div class="support-grid">
+          <article v-for="counselor in counselors" :key="counselor.id" class="counselor-card">
+            <span class="counselor-avatar" :style="{ background: counselor.avatar_color }">{{ counselor.name.slice(0, 1) }}</span>
+            <div>
+              <h3>{{ counselor.name }}</h3>
+              <p>{{ counselor.title }}</p>
+              <div class="tag-list">
+                <span v-for="tag in counselor.specialties" :key="tag">{{ tag }}</span>
+              </div>
+            </div>
+            <strong>{{ counselor.match_score }}%</strong>
+          </article>
+        </div>
+      </section>
+
+      <section id="resources" class="section resource-section scroll-follow follow-medium">
+        <div class="section-heading align-left wide-heading">
+          <span class="eyebrow">心理资源</span>
+          <h2>科普文章与自助干预内容动态更新</h2>
+        </div>
+
+        <div class="resource-grid">
+          <article v-for="article in articles" :key="article.id" class="resource-card">
+            <span>{{ article.category }} · {{ article.source }}</span>
+            <h3>{{ article.title }}</h3>
+            <p>{{ article.summary }}</p>
+            <div class="tag-list">
+              <span v-for="tag in article.tags" :key="tag">{{ tag }}</span>
+            </div>
+          </article>
+        </div>
+      </section>
+
       <section id="contact" class="cta-section scroll-follow follow-deep">
         <div>
           <span class="eyebrow">开始使用</span>
@@ -283,16 +505,25 @@ function openAuth(mode) {
         </div>
         <h2>{{ authMode === 'login' ? '欢迎回来' : '创建账号' }}</h2>
         <p>{{ authMode === 'login' ? '登录后进入学生端或教师端。' : '注册后可进行情绪记录、测评和预约。' }}</p>
-        <form class="auth-form">
-          <input placeholder="学号 / 工号 / 邮箱" />
-          <input placeholder="密码" type="password" />
-          <input v-if="authMode === 'register'" placeholder="确认密码" type="password" />
-          <select v-if="authMode === 'register'">
+        <form class="auth-form" @submit.prevent="submitAuth">
+          <input v-model.trim="authForm.username" placeholder="学号 / 工号 / 邮箱" required />
+          <input v-model="authForm.password" placeholder="密码" type="password" required />
+          <input
+            v-if="authMode === 'register'"
+            v-model="authForm.confirmPassword"
+            placeholder="确认密码"
+            type="password"
+            required
+          />
+          <select v-if="authMode === 'register'" v-model="authForm.role">
             <option>学生</option>
             <option>心理老师</option>
             <option>管理员</option>
           </select>
-          <button class="solid-button large" type="button">{{ authMode === 'login' ? '登录' : '注册' }}</button>
+          <p v-if="authMessage" class="auth-message">{{ authMessage }}</p>
+          <button class="solid-button large" type="submit" :disabled="authSubmitting">
+            {{ authSubmitting ? '提交中...' : authMode === 'login' ? '登录' : '注册' }}
+          </button>
         </form>
       </section>
     </div>

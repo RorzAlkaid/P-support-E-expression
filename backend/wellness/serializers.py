@@ -1,0 +1,148 @@
+from rest_framework import serializers
+
+from .models import (
+    Appointment,
+    Article,
+    AssessmentRecord,
+    AssessmentScale,
+    Counselor,
+    CrisisAlert,
+    MoodEntry,
+    StudentProfile,
+)
+
+
+class StudentProfileSerializer(serializers.ModelSerializer):
+    name = serializers.CharField(source='user.get_full_name', read_only=True)
+    username = serializers.CharField(source='user.username', read_only=True)
+
+    class Meta:
+        model = StudentProfile
+        fields = [
+            'id',
+            'name',
+            'username',
+            'student_no',
+            'college',
+            'grade',
+            'privacy_consent',
+            'pressure_sources',
+            'preferred_topics',
+            'created_at',
+        ]
+
+
+class CounselorSerializer(serializers.ModelSerializer):
+    match_score = serializers.IntegerField(read_only=True)
+
+    class Meta:
+        model = Counselor
+        fields = [
+            'id',
+            'name',
+            'title',
+            'specialties',
+            'qualifications',
+            'available_slots',
+            'avatar_color',
+            'is_active',
+            'match_score',
+        ]
+
+
+class ArticleSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Article
+        fields = [
+            'id',
+            'title',
+            'source',
+            'category',
+            'summary',
+            'content',
+            'tags',
+            'is_published',
+            'updated_at',
+        ]
+
+
+class AssessmentScaleSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = AssessmentScale
+        fields = ['id', 'name', 'code', 'description', 'questions', 'max_score']
+
+
+class AssessmentRecordSerializer(serializers.ModelSerializer):
+    student_name = serializers.CharField(source='student.user.get_full_name', read_only=True)
+    scale_name = serializers.CharField(source='scale.name', read_only=True)
+
+    class Meta:
+        model = AssessmentRecord
+        fields = [
+            'id',
+            'student',
+            'student_name',
+            'scale',
+            'scale_name',
+            'score',
+            'risk_level',
+            'answers',
+            'suggestion',
+            'created_at',
+        ]
+
+
+class MoodEntrySerializer(serializers.ModelSerializer):
+    student_name = serializers.CharField(source='student.user.get_full_name', read_only=True)
+
+    class Meta:
+        model = MoodEntry
+        fields = [
+            'id',
+            'student',
+            'student_name',
+            'mood',
+            'intensity',
+            'sleep_quality',
+            'pressure_sources',
+            'note',
+            'is_private',
+            'created_at',
+        ]
+
+
+class AppointmentSerializer(serializers.ModelSerializer):
+    student_name = serializers.CharField(source='student.user.get_full_name', read_only=True)
+    counselor_name = serializers.CharField(source='counselor.name', read_only=True)
+
+    class Meta:
+        model = Appointment
+        fields = [
+            'id',
+            'student',
+            'student_name',
+            'counselor',
+            'counselor_name',
+            'scheduled_at',
+            'topic',
+            'status',
+            'confidential_note',
+            'created_at',
+        ]
+
+
+class CrisisAlertSerializer(serializers.ModelSerializer):
+    student_name = serializers.CharField(source='student.user.get_full_name', read_only=True)
+
+    class Meta:
+        model = CrisisAlert
+        fields = [
+            'id',
+            'student',
+            'student_name',
+            'level',
+            'trigger',
+            'handled',
+            'handler_note',
+            'created_at',
+        ]
