@@ -1,0 +1,66 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="880" height="360" viewBox="0 0 880 360" role="img" aria-labelledby="title desc">
+  <title id="title">心晴校园 logo preview</title>
+  <desc id="desc">A minimal heart and speech bubble logo with a warm sun for the campus mental health platform.</desc>
+  <defs>
+    <linearGradient id="markGradient" x1="78" y1="92" x2="274" y2="268" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#d85d73"/>
+      <stop offset="1" stop-color="#e58a9a"/>
+    </linearGradient>
+    <filter id="softShadow" x="-20%" y="-20%" width="140%" height="140%" color-interpolation-filters="sRGB">
+      <feDropShadow dx="0" dy="18" stdDeviation="18" flood-color="#23423a" flood-opacity=".12"/>
+    </filter>
+  </defs>
+
+  <rect width="880" height="360" rx="24" fill="#fff7f5"/>
+
+  <g transform="translate(88 60)" filter="url(#softShadow)">
+    <rect width="240" height="240" rx="42" fill="#ffffff"/>
+    <path
+      d="M120 196c-6-10-17-20-32-31-30-22-52-42-52-75 0-30 23-54 53-54 17 0 32 8 41 22 10-14 25-22 42-22 30 0 53 24 53 54 0 33-22 53-52 75-15 11-26 21-32 31l-11 18-10-18Z"
+      fill="none"
+      stroke="url(#markGradient)"
+      stroke-width="18"
+      stroke-linecap="round"
+      stroke-linejoin="round"
+    />
+    <path
+      d="M70 139c28-17 61-21 92-11 11 4 21 9 32 9 13 0 25-5 36-13"
+      fill="none"
+      stroke="#c94f66"
+      stroke-width="14"
+      stroke-linecap="round"
+    />
+    <circle cx="121" cy="98" r="19" fill="#f0ad63"/>
+    <path
+      d="M146 186l-13 30 34-22"
+      fill="none"
+      stroke="#b95f8b"
+      stroke-width="18"
+      stroke-linecap="round"
+      stroke-linejoin="round"
+    />
+  </g>
+
+  <g transform="translate(374 111)">
+    <text x="0" y="72" fill="#1e2d2a" font-family="'Microsoft YaHei', 'PingFang SC', 'Noto Sans SC', Arial, sans-serif" font-size="64" font-weight="800" letter-spacing="0">心晴校园</text>
+    <text x="4" y="120" fill="#66736f" font-family="'Microsoft YaHei', 'PingFang SC', 'Noto Sans SC', Arial, sans-serif" font-size="25" font-weight="500" letter-spacing="2">心理支持与情绪表达平台</text>
+  </g>
+
+  <g transform="translate(378 232)">
+    <rect width="244" height="58" rx="8" fill="#ffffff" stroke="#f0d7d6"/>
+    <g transform="translate(16 10) scale(.158)">
+      <path
+        d="M120 196c-6-10-17-20-32-31-30-22-52-42-52-75 0-30 23-54 53-54 17 0 32 8 41 22 10-14 25-22 42-22 30 0 53 24 53 54 0 33-22 53-52 75-15 11-26 21-32 31l-11 18-10-18Z"
+        fill="none"
+        stroke="url(#markGradient)"
+        stroke-width="18"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+      />
+      <path d="M70 139c28-17 61-21 92-11 11 4 21 9 32 9 13 0 25-5 36-13" fill="none" stroke="#c94f66" stroke-width="14" stroke-linecap="round"/>
+      <circle cx="121" cy="98" r="19" fill="#f0ad63"/>
+      <path d="M146 186l-13 30 34-22" fill="none" stroke="#b95f8b" stroke-width="18" stroke-linecap="round" stroke-linejoin="round"/>
+    </g>
+    <text x="58" y="37" fill="#1e2d2a" font-family="'Microsoft YaHei', 'PingFang SC', 'Noto Sans SC', Arial, sans-serif" font-size="22" font-weight="800">心晴校园</text>
+  </g>
+</svg>
