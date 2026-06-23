@@ -184,16 +184,105 @@ main,
   will-change: transform;
 }
 
+.scroll-converge {
+  --motion-x: 0px;
+  --motion-scale: 0.82;
+  --motion-opacity: 0.26;
+  --motion-depth: 0;
+  --float-shift: 0px;
+  --hover-lift: 0px;
+  --hover-push: 0px;
+  opacity: var(--motion-opacity);
+  transform:
+    translate3d(
+      calc(var(--motion-x) + var(--hover-push)),
+      calc(var(--float-shift) + var(--hover-lift)),
+      0
+    )
+    scale(var(--motion-scale));
+  transition:
+    opacity 1.8s ease,
+    transform 1.8s cubic-bezier(0.18, 0.68, 0.16, 1),
+    box-shadow 0.24s ease,
+    border-color 0.24s ease,
+    background 0.24s ease;
+  will-change: transform, opacity;
+}
+
 .feature-card:nth-child(odd),
 .scene-item:nth-child(odd),
 .process-step:nth-child(odd) {
-  transform: translate3d(0, calc(var(--scroll-shift) * 0.035), 0);
+  --float-shift: calc(var(--scroll-shift) * 0.035);
 }
 
 .feature-card:nth-child(even),
 .scene-item:nth-child(even),
 .process-step:nth-child(even) {
-  transform: translate3d(0, calc(var(--scroll-shift) * 0.065), 0);
+  --float-shift: calc(var(--scroll-shift) * 0.065);
+}
+
+.heart-wall-toast {
+  position: fixed;
+  top: 18px;
+  left: 50%;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: fit-content;
+  min-height: 54px;
+  padding: 0 28px 0 24px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 999px;
+  color: #ffffff;
+  background:
+    radial-gradient(circle at 18% 0%, rgba(255, 255, 255, 0.18), transparent 34%),
+    #050505;
+  box-shadow:
+    0 18px 50px rgba(0, 0, 0, 0.32),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.06);
+  transform: translateX(-50%);
+  overflow: hidden;
+}
+
+.heart-wall-toast::before {
+  width: 12px;
+  height: 28px;
+  border-radius: 999px;
+  background: linear-gradient(180deg, #e58a9a, #f0ad63);
+  content: "";
+  animation: wallPulse 2.4s ease-in-out infinite alternate;
+}
+
+.heart-wall-toast::after {
+  position: absolute;
+  inset: -40% auto -40% -18%;
+  width: 34%;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.22), transparent);
+  content: "";
+  transform: rotate(14deg);
+  animation: wallSweep 4.2s ease-in-out infinite;
+}
+
+.heart-wall-toast strong {
+  position: relative;
+  z-index: 1;
+  flex: 0 0 auto;
+  font-size: 16px;
+  font-weight: 850;
+}
+
+.heart-wall-enter-active,
+.heart-wall-leave-active {
+  transition:
+    opacity 0.65s ease,
+    transform 0.65s cubic-bezier(0.18, 0.68, 0.16, 1);
+}
+
+.heart-wall-enter-from,
+.heart-wall-leave-to {
+  opacity: 0;
+  transform: translate(-50%, -18px) scale(0.94);
 }
 
 .site-header {
@@ -654,7 +743,7 @@ main,
 
 .feature-card:hover,
 .feature-card:focus-within {
-  transform: translateY(-8px);
+  --hover-lift: -8px;
   border-color: rgba(216, 93, 115, 0.38);
   box-shadow: var(--shadow);
 }
@@ -769,7 +858,7 @@ main,
 }
 
 .scene-item:hover {
-  transform: translateX(8px);
+  --hover-push: 8px;
   border-color: rgba(216, 93, 115, 0.28);
   background: #ffffff;
 }
@@ -1039,6 +1128,36 @@ main,
   font-size: 12px;
 }
 
+.locked-resource-card {
+  display: grid;
+  width: 100%;
+  min-height: 96px;
+  padding: 18px 20px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: rgba(255, 255, 255, 0.88);
+  box-shadow: 0 10px 30px rgba(126, 54, 68, 0.07);
+  text-align: left;
+}
+
+.locked-resource-card strong {
+  color: var(--ink);
+  font-size: 18px;
+}
+
+.locked-resource-card span {
+  margin-top: 6px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.locked-resource-card:hover,
+.locked-resource-card:focus-visible {
+  --hover-lift: -4px;
+  border-color: rgba(216, 93, 115, 0.32);
+  outline: none;
+}
+
 .compact-main {
   min-width: 0;
 }
@@ -1234,7 +1353,7 @@ main,
 
 .module-intro-card:hover,
 .module-intro-card:focus-visible {
-  transform: translateY(-6px);
+  --hover-lift: -6px;
   border-color: rgba(216, 93, 115, 0.36);
   box-shadow: var(--shadow);
   outline: none;
@@ -2253,6 +2372,29 @@ a:focus-visible {
   to {
     transform: translateY(0) scale(1);
     opacity: 1;
+  }
+}
+
+@keyframes wallPulse {
+  from {
+    opacity: 0.55;
+    transform: scaleY(0.72);
+  }
+
+  to {
+    opacity: 1;
+    transform: scaleY(1);
+  }
+}
+
+@keyframes wallSweep {
+  0% {
+    transform: translateX(0) rotate(14deg);
+  }
+
+  72%,
+  100% {
+    transform: translateX(390%) rotate(14deg);
   }
 }
 

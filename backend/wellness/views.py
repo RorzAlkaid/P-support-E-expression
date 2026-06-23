@@ -65,6 +65,30 @@ ROLE_MAP = {
 
 READ_METHODS = ('GET', 'HEAD', 'OPTIONS')
 TEACHER_ADMIN_ROLES = (AccountProfile.ROLE_TEACHER, AccountProfile.ROLE_ADMIN)
+INSIGHT_EXPORT_HEADERS = ['section', 'student', 'mood', 'intensity', 'sleep_quality', 'pressure_sources', 'note', 'scale', 'score', 'risk_level', 'suggestion', 'counselor', 'topic', 'status', 'scheduled_at', 'confidential_note', 'level', 'trigger', 'handled', 'handler_note', 'created_at']
+INSIGHT_EXCEL_HEADER_LABELS = {
+    'section': '模块',
+    'student': '学生',
+    'mood': '情绪',
+    'intensity': '情绪强度',
+    'sleep_quality': '睡眠质量',
+    'pressure_sources': '压力来源',
+    'note': '日记',
+    'scale': '量表',
+    'score': '得分',
+    'risk_level': '风险等级',
+    'suggestion': '建议',
+    'counselor': '咨询师',
+    'topic': '咨询主题',
+    'status': '预约状态',
+    'scheduled_at': '预约时间',
+    'confidential_note': '保密备注',
+    'level': '预警等级',
+    'trigger': '触发原因',
+    'handled': '处理状态',
+    'handler_note': '处理记录',
+    'created_at': '创建时间',
+}
 
 
 def user_role(user):
@@ -353,6 +377,14 @@ def appointment_status_label(value):
     }.get(value, value or '未知')
 
 
+def crisis_alert_level_label(value):
+    return {
+        CrisisAlert.LEVEL_NOTICE: '关注',
+        CrisisAlert.LEVEL_WARNING: '预警',
+        CrisisAlert.LEVEL_CRITICAL: '危机',
+    }.get(value, value or '未知')
+
+
 def build_insight_payload():
     mood_rows = MoodEntry.objects.select_related('student__user').order_by('-created_at')[:200]
     assessment_rows = AssessmentRecord.objects.select_related('student__user', 'scale').order_by('-created_at')[:200]
@@ -459,7 +491,10 @@ def insight_export_rows(payload):
 
 
 def make_xlsx_response(rows, filename):
-    headers = ['section', 'student', 'mood', 'intensity', 'sleep_quality', 'pressure_sources', 'note', 'scale', 'score', 'risk_level', 'suggestion', 'counselor', 'topic', 'status', 'scheduled_at', 'confidential_note', 'level', 'trigger', 'handled', 'handler_note', 'created_at']
+    def xlsx_cell_value(header, value):
+        if header == 'level':
+            return crisis_alert_level_label(value)
+        return value
 
     def cell_ref(column_index, row_index):
         name = ''
@@ -469,7 +504,10 @@ def make_xlsx_response(rows, filename):
             name = chr(65 + remainder) + name
         return f'{name}{row_index}'
 
-    sheet_rows = [headers] + [[row.get(header, '') for header in headers] for row in rows]
+    sheet_rows = [
+        [INSIGHT_EXCEL_HEADER_LABELS[header] for header in INSIGHT_EXPORT_HEADERS],
+        *[[xlsx_cell_value(header, row.get(header, '')) for header in INSIGHT_EXPORT_HEADERS] for row in rows],
+    ]
     xml_rows = []
     for row_index, row in enumerate(sheet_rows, start=1):
         cells = []
@@ -514,12 +552,11 @@ def export_insights(request, file_format=None):
     filename_base = f'insights-{timezone.localdate():%Y%m%d}'
 
     if export_format in ['xlsx', 'excel']:
-        return make_xlsx_response(rows, f'{filename_base}.xlsx')
+        return make_xlsx_response(rows, f'数据洞察-{timezone.localdate():%Y%m%d}.xlsx')
 
-    headers = ['section', 'student', 'mood', 'intensity', 'sleep_quality', 'pressure_sources', 'note', 'scale', 'score', 'risk_level', 'suggestion', 'counselor', 'topic', 'status', 'scheduled_at', 'confidential_note', 'level', 'trigger', 'handled', 'handler_note', 'created_at']
     output = io.StringIO()
     output.write('\ufeff')
-    writer = csv.DictWriter(output, fieldnames=headers)
+    writer = csv.DictWriter(output, fieldnames=INSIGHT_EXPORT_HEADERS)
     writer.writeheader()
     writer.writerows(rows)
     response = HttpResponse(output.getvalue(), content_type='text/csv; charset=utf-8')

@@ -40,6 +40,10 @@ const authSubmitting = ref(false)
 const authMessage = ref('')
 const moduleData = ref(null)
 const moduleMessage = ref('')
+const heartWallVisible = ref(false)
+const heartWallKey = ref(0)
+let heartWallTimer = null
+let scrollMotionFrame = null
 const selectedAlertDetail = ref(null)
 const alertDetailLoading = ref(false)
 const alertDetailMessage = ref('')
@@ -124,6 +128,19 @@ const pageTitles = {
   alerts: '预警管理',
   insights: '数据洞察',
   'alert-detail': '预警学生详情',
+}
+
+const pageAccessRules = {
+  profile: { roles: ['student', 'teacher', 'admin'], loginRequired: true, label: '个人资料' },
+  mood: { roles: ['student', 'teacher', 'admin'], loginRequired: true, label: '情绪打卡' },
+  treehole: { roles: ['student', 'teacher', 'admin'], loginRequired: true, label: '匿名树洞' },
+  assessment: { roles: ['student', 'teacher', 'admin'], loginRequired: true, label: '心理测评' },
+  appointment: { roles: ['student', 'teacher', 'admin'], loginRequired: true, label: '咨询预约' },
+  resources: { roles: ['student', 'teacher', 'admin'], loginRequired: true, label: '心理资源' },
+  article: { roles: ['student', 'teacher', 'admin'], loginRequired: true, label: '文章详情' },
+  insights: { roles: ['student', 'teacher', 'admin'], loginRequired: true, label: '数据洞察' },
+  alerts: { roles: ['teacher', 'admin'], loginRequired: true, label: '预警管理' },
+  'alert-detail': { roles: ['teacher', 'admin'], loginRequired: true, label: '预警学生详情' },
 }
 
 const moduleIntros = [
@@ -265,13 +282,80 @@ function handlePointerLeave() {
 function handleScroll() {
   const shift = Math.min(window.scrollY * 0.026, 34)
   scrollShift.value = `${shift.toFixed(2)}px`
+  scheduleScrollMotion()
+}
+
+function clamp(value, min = 0, max = 1) {
+  return Math.min(max, Math.max(min, value))
+}
+
+function updateScrollMotion() {
+  scrollMotionFrame = null
+  const viewportHeight = window.innerHeight || document.documentElement.clientHeight || 800
+  const focusLine = viewportHeight * 0.52
+  const activeDistance = Math.max(viewportHeight * 0.72, 420)
+
+  document.querySelectorAll('.scroll-converge').forEach((el) => {
+    const rect = el.getBoundingClientRect()
+    const center = rect.top + rect.height / 2
+    const distance = Math.abs(center - focusLine)
+    const gather = clamp(1 - distance / activeDistance)
+    const eased = 1 - Math.pow(1 - gather, 3)
+    const scatterX = Number(el.dataset.scatterX || 0)
+    const motionX = scatterX * (1 - eased)
+
+    el.style.setProperty('--motion-x', `${motionX.toFixed(2)}px`)
+    el.style.setProperty('--motion-scale', (0.94 + eased * 0.06).toFixed(3))
+    el.style.setProperty('--motion-opacity', (0.42 + eased * 0.58).toFixed(3))
+    el.style.setProperty('--motion-depth', eased.toFixed(3))
+  })
+}
+
+function scheduleScrollMotion() {
+  if (scrollMotionFrame) return
+  scrollMotionFrame = window.requestAnimationFrame(updateScrollMotion)
+}
+
+function motionAttrs(index, total = 4, distance = 96) {
+  const center = (total - 1) / 2
+  const offset = index - center
+  const direction = offset === 0 ? (index % 2 === 0 ? -1 : 1) : Math.sign(offset)
+  const scatterX = direction * (distance + Math.abs(offset) * distance * 0.38)
+  return {
+    'data-scatter-x': scatterX.toFixed(0),
+  }
+}
+
+function showHeartWall() {
+  heartWallVisible.value = false
+  heartWallKey.value += 1
+  window.clearTimeout(heartWallTimer)
+  requestAnimationFrame(() => {
+    heartWallVisible.value = true
+    heartWallTimer = window.setTimeout(() => {
+      heartWallVisible.value = false
+    }, 2600)
+  })
+}
+
+function canAccessPage(page) {
+  const rule = pageAccessRules[page]
+  if (!rule) return true
+  if (rule.loginRequired && currentRole.value === 'guest') return false
+  return rule.roles.includes(currentRole.value)
+}
+
+function guardPageAccess(page, { notify = true } = {}) {
+  if (canAccessPage(page)) return true
+  const rule = pageAccessRules[page]
+  if (notify && rule) {
+    showHeartWall()
+  }
+  return false
 }
 
 function navigate(page) {
-  if (['alerts', 'alert-detail'].includes(page) && !canViewAlerts.value) {
-    currentPage.value = 'home'
-    window.location.hash = '/home'
-    window.scrollTo({ top: 0, behavior: 'smooth' })
+  if (!guardPageAccess(page)) {
     return
   }
   if (page !== 'alert-detail') {
@@ -293,6 +377,9 @@ function navigate(page) {
 }
 
 async function openArticle(article) {
+  if (!guardPageAccess('article')) {
+    return
+  }
   currentArticleId.value = article.id
   currentPage.value = 'article'
   window.location.hash = `/article/${article.id}`
@@ -315,6 +402,7 @@ async function navigateHomeSection(sectionId = 'home') {
   window.location.hash = '/home'
   await nextTick()
   document.querySelector(`#${sectionId}`)?.scrollIntoView({ behavior: 'smooth', block: sectionId === 'home' ? 'start' : 'center' })
+  scheduleScrollMotion()
 }
 
 function startExperience() {
@@ -356,6 +444,7 @@ async function loadBackendData() {
     await nextTick()
     setupChartObservers()
     scheduleRenderCharts()
+    scheduleScrollMotion()
   } catch (error) {
     loading.value = false
     console.error('Django API 数据加载失败', error)
@@ -380,12 +469,17 @@ async function refreshModules() {
   await nextTick()
   setupChartObservers()
   scheduleRenderCharts()
+  scheduleScrollMotion()
 }
 
 async function loadCurrentUser() {
   const response = await axios.get('/api/auth/me/')
   currentUser.value = response.data.authenticated ? response.data.user : null
   syncTeacherProfileForm(currentUser.value?.counselor_profile)
+  if (!guardPageAccess(currentPage.value)) {
+    navigate('home')
+    return
+  }
   if (currentPage.value === 'alert-detail' && currentAlertId.value && canViewAlerts.value) {
     await loadAlertStudentDetail(currentAlertId.value)
   }
@@ -561,7 +655,7 @@ onMounted(() => {
   window.addEventListener('hashchange', () => {
     const parts = window.location.hash?.replace('#/', '').split('/') || ['home']
     const nextPage = parts[0] || 'home'
-    if (['alerts', 'alert-detail'].includes(nextPage) && !canViewAlerts.value) {
+    if (!guardPageAccess(nextPage)) {
       navigate('home')
       return
     }
@@ -574,7 +668,9 @@ onMounted(() => {
     if (currentPage.value === 'profile') {
       loadUserProfile()
     }
+    scheduleScrollMotion()
   })
+  nextTick(scheduleScrollMotion)
 })
 
 onUnmounted(() => {
@@ -582,6 +678,8 @@ onUnmounted(() => {
   window.removeEventListener('scroll', handleScroll)
   window.removeEventListener('resize', scheduleRenderCharts)
   window.clearTimeout(chartRenderTimer)
+  window.clearTimeout(heartWallTimer)
+  window.cancelAnimationFrame(scrollMotionFrame)
   chartResizeObserver?.disconnect()
   chartVisibilityObserver?.disconnect()
   trendChart?.dispose()
@@ -721,6 +819,10 @@ async function submitRegister() {
 async function logoutAccount() {
   await axios.post('/api/auth/logout/')
   currentUser.value = null
+  if (!canAccessPage(currentPage.value)) {
+    showHeartWall()
+    navigate('home')
+  }
 }
 
 function pressureSourceList(value) {
@@ -1073,6 +1175,11 @@ async function editAlert(alert) {
       <span class="ink-wash wash-two"></span>
       <span class="ink-wash wash-three"></span>
     </div>
+    <Transition name="heart-wall">
+      <div v-if="heartWallVisible" :key="heartWallKey" class="heart-wall-toast" role="status" aria-live="polite">
+        <strong>心之壁</strong>
+      </div>
+    </Transition>
     <header class="site-header">
       <a class="brand" href="#/home" aria-label="心晴校园首页" @click.prevent="navigate('home')">
         <span class="brand-mark">
@@ -1153,7 +1260,8 @@ async function editAlert(alert) {
           <article
             v-for="(feature, index) in features"
             :key="feature.title"
-            :class="['feature-card', feature.accent]"
+            :class="['feature-card', 'scroll-converge', feature.accent]"
+            v-bind="motionAttrs(index, features.length, 120)"
             tabindex="0"
             @click="navigate(['mood', 'treehole', 'assessment', 'appointment'][index])"
           >
@@ -1176,7 +1284,7 @@ async function editAlert(alert) {
         </div>
 
         <div class="scene-list">
-          <article v-for="scene in scenes" :key="scene.label" class="scene-item">
+          <article v-for="(scene, index) in scenes" :key="scene.label" class="scene-item scroll-converge" v-bind="motionAttrs(index, scenes.length, 92)">
             <span>{{ scene.label }}</span>
             <div>
               <h3>{{ scene.title }}</h3>
@@ -1192,7 +1300,7 @@ async function editAlert(alert) {
           <h2>清晰的心理支持闭环</h2>
         </div>
         <div class="process-line">
-          <div v-for="(step, index) in steps" :key="step" class="process-step">
+          <div v-for="(step, index) in steps" :key="step" class="process-step scroll-converge" v-bind="motionAttrs(index, steps.length, 110)">
             <span>{{ String(index + 1).padStart(2, '0') }}</span>
             <p>{{ step }}</p>
           </div>
@@ -1209,30 +1317,30 @@ async function editAlert(alert) {
         <div v-if="loading" class="data-loading">正在从后端加载数据...</div>
         <template v-else>
           <div class="data-metrics">
-            <article>
+            <article class="scroll-converge" v-bind="motionAttrs(0, 4, 100)">
               <span>学生档案</span>
               <strong>{{ dashboard?.stats.students ?? 0 }}</strong>
             </article>
-            <article>
+            <article class="scroll-converge" v-bind="motionAttrs(1, 4, 100)">
               <span>咨询师</span>
               <strong>{{ dashboard?.stats.counselors ?? 0 }}</strong>
             </article>
-            <article>
+            <article class="scroll-converge" v-bind="motionAttrs(2, 4, 100)">
               <span>心理资源</span>
               <strong>{{ dashboard?.stats.articles ?? 0 }}</strong>
             </article>
-            <article class="warning">
+            <article class="warning scroll-converge" v-bind="motionAttrs(3, 4, 100)">
               <span>未处理预警</span>
               <strong>{{ dashboard?.stats.unhandled_alerts ?? 0 }}</strong>
             </article>
           </div>
 
           <div class="chart-grid">
-            <article class="data-panel">
+            <article class="data-panel scroll-converge" v-bind="motionAttrs(0, 2, 135)">
               <h3>情绪与睡眠趋势</h3>
               <div ref="trendChartRef" class="chart-box"></div>
             </article>
-            <article class="data-panel">
+            <article class="data-panel scroll-converge" v-bind="motionAttrs(1, 2, 135)">
               <h3>压力来源雷达图</h3>
               <div ref="pressureChartRef" class="chart-box"></div>
             </article>
@@ -1249,7 +1357,13 @@ async function editAlert(alert) {
         </div>
 
         <div class="compact-list support-list">
-          <article v-for="counselor in homeCounselors" :key="counselor.id" class="counselor-row" @click="navigate('appointment')">
+          <article
+            v-for="(counselor, index) in homeCounselors"
+            :key="counselor.id"
+            class="counselor-row scroll-converge"
+            v-bind="motionAttrs(index, homeCounselors.length, 82)"
+            @click="navigate('appointment')"
+          >
             <span class="counselor-avatar small" :style="{ background: counselor.avatar_color }">{{ counselor.name.slice(0, 1) }}</span>
             <div class="compact-main">
               <h3>{{ counselor.name }}</h3>
@@ -1270,8 +1384,14 @@ async function editAlert(alert) {
           <h2>科普文章与自助干预内容动态更新</h2>
         </div>
 
-        <div class="compact-list resource-list">
-          <article v-for="article in homeArticles" :key="article.id" class="resource-row" @click="openArticle(article)">
+        <div v-if="currentUser" class="compact-list resource-list">
+          <article
+            v-for="(article, index) in homeArticles"
+            :key="article.id"
+            class="resource-row scroll-converge"
+            v-bind="motionAttrs(index, homeArticles.length, 78)"
+            @click="openArticle(article)"
+          >
             <span>{{ article.category }} · {{ article.source }}</span>
             <h3>{{ article.title }}</h3>
             <p>{{ article.summary }}</p>
@@ -1280,6 +1400,10 @@ async function editAlert(alert) {
             </div>
           </article>
         </div>
+        <button v-else class="locked-resource-card scroll-converge" type="button" v-bind="motionAttrs(0, 1, 96)" @click="navigate('resources')">
+          <strong>心理资源</strong>
+          <span>登录后查看</span>
+        </button>
         <button class="more-link" type="button" @click="navigate('resources')">&gt;&gt;&gt;更多</button>
       </section>
 
@@ -1292,9 +1416,10 @@ async function editAlert(alert) {
 
         <div class="module-intro-grid">
           <article
-            v-for="intro in moduleIntros"
+            v-for="(intro, index) in moduleIntros"
             :key="intro.page"
-            class="module-intro-card"
+            class="module-intro-card scroll-converge"
+            v-bind="motionAttrs(index, moduleIntros.length, 104)"
             tabindex="0"
             @click="navigate(intro.page)"
             @keydown.enter="navigate(intro.page)"
