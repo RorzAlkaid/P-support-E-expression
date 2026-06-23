@@ -592,7 +592,7 @@ def counselor_recommendations(request):
 @api_view(['GET'])
 def alert_student_detail(request, alert_id):
     if not can_view_alert_details(request.user):
-        return Response({'detail': 'Only teachers and admins can view alert student details.'}, status=status.HTTP_403_FORBIDDEN)
+        return Response({'detail': '只有教师和管理员可以查看预警学生详情。'}, status=status.HTTP_403_FORBIDDEN)
 
     alert = CrisisAlert.objects.select_related('student__user').filter(id=alert_id).first()
     if not alert:

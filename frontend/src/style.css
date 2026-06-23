@@ -382,6 +382,27 @@ main,
   gap: 12px;
 }
 
+.auth-actions {
+  min-width: 132px;
+  justify-content: flex-end;
+  opacity: 0;
+  transform: translateY(-4px);
+  transition:
+    opacity 0.28s ease,
+    transform 0.28s ease;
+}
+
+.auth-actions.ready {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.auth-actions-placeholder {
+  width: 132px;
+  height: 42px;
+  pointer-events: none;
+}
+
 .text-button {
   min-height: 40px;
   padding: 0 12px;
@@ -1126,36 +1147,6 @@ main,
 .resource-row > span {
   color: var(--muted);
   font-size: 12px;
-}
-
-.locked-resource-card {
-  display: grid;
-  width: 100%;
-  min-height: 96px;
-  padding: 18px 20px;
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  background: rgba(255, 255, 255, 0.88);
-  box-shadow: 0 10px 30px rgba(126, 54, 68, 0.07);
-  text-align: left;
-}
-
-.locked-resource-card strong {
-  color: var(--ink);
-  font-size: 18px;
-}
-
-.locked-resource-card span {
-  margin-top: 6px;
-  color: var(--muted);
-  font-size: 13px;
-}
-
-.locked-resource-card:hover,
-.locked-resource-card:focus-visible {
-  --hover-lift: -4px;
-  border-color: rgba(216, 93, 115, 0.32);
-  outline: none;
 }
 
 .compact-main {

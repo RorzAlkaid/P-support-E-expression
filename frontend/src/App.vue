@@ -36,6 +36,7 @@ const maxChartRenderAttempts = 12
 const currentUser = ref(null)
 const initialHashParts = window.location.hash?.replace('#/', '').split('/') || ['home']
 const currentPage = ref(initialHashParts[0] || 'home')
+const authReady = ref(false)
 const authSubmitting = ref(false)
 const authMessage = ref('')
 const moduleData = ref(null)
@@ -44,6 +45,7 @@ const heartWallVisible = ref(false)
 const heartWallKey = ref(0)
 let heartWallTimer = null
 let scrollMotionFrame = null
+let pendingFullPageReload = false
 const selectedAlertDetail = ref(null)
 const alertDetailLoading = ref(false)
 const alertDetailMessage = ref('')
@@ -354,8 +356,27 @@ function guardPageAccess(page, { notify = true } = {}) {
   return false
 }
 
+function currentHashPath() {
+  return window.location.hash.replace(/^#/, '') || '/home'
+}
+
+function reloadIntoPage(hashPath, { homeSection } = {}) {
+  const normalizedPath = hashPath.startsWith('/') ? hashPath : `/${hashPath}`
+  if (homeSection) {
+    window.sessionStorage.setItem('pendingHomeSection', homeSection)
+  }
+  if (currentHashPath() === normalizedPath) return false
+  pendingFullPageReload = true
+  window.location.hash = normalizedPath
+  window.location.reload()
+  return true
+}
+
 function navigate(page) {
   if (!guardPageAccess(page)) {
+    return
+  }
+  if (reloadIntoPage(`/${page}`)) {
     return
   }
   if (page !== 'alert-detail') {
@@ -380,10 +401,9 @@ async function openArticle(article) {
   if (!guardPageAccess('article')) {
     return
   }
+  const articlePath = `/article/${article.id}`
   currentArticleId.value = article.id
   currentPage.value = 'article'
-  window.location.hash = `/article/${article.id}`
-  window.scrollTo({ top: 0, behavior: 'smooth' })
   if (currentRole.value === 'student') {
     try {
       await axios.post(`/api/articles/${article.id}/view-log/`)
@@ -391,6 +411,11 @@ async function openArticle(article) {
       console.error('资源浏览记录保存失败', error)
     }
   }
+  if (reloadIntoPage(articlePath)) {
+    return
+  }
+  window.location.hash = articlePath
+  window.scrollTo({ top: 0, behavior: 'smooth' })
 }
 
 function scrollToModules() {
@@ -398,6 +423,9 @@ function scrollToModules() {
 }
 
 async function navigateHomeSection(sectionId = 'home') {
+  if (reloadIntoPage('/home', { homeSection: sectionId })) {
+    return
+  }
   currentPage.value = 'home'
   window.location.hash = '/home'
   await nextTick()
@@ -473,21 +501,28 @@ async function refreshModules() {
 }
 
 async function loadCurrentUser() {
-  const response = await axios.get('/api/auth/me/')
-  currentUser.value = response.data.authenticated ? response.data.user : null
-  syncTeacherProfileForm(currentUser.value?.counselor_profile)
-  if (!guardPageAccess(currentPage.value)) {
-    navigate('home')
-    return
-  }
-  if (currentPage.value === 'alert-detail' && currentAlertId.value && canViewAlerts.value) {
-    await loadAlertStudentDetail(currentAlertId.value)
-  }
-  if (currentUser.value && currentPage.value === 'profile') {
-    await loadUserProfile()
-  }
-  if (currentPage.value === 'insights') {
-    await loadInsights()
+  try {
+    const response = await axios.get('/api/auth/me/')
+    currentUser.value = response.data.authenticated ? response.data.user : null
+    syncTeacherProfileForm(currentUser.value?.counselor_profile)
+    if (!guardPageAccess(currentPage.value)) {
+      navigate('home')
+      return
+    }
+    if (currentPage.value === 'alert-detail' && currentAlertId.value && canViewAlerts.value) {
+      await loadAlertStudentDetail(currentAlertId.value)
+    }
+    if (currentUser.value && currentPage.value === 'profile') {
+      await loadUserProfile()
+    }
+    if (currentPage.value === 'insights') {
+      await loadInsights()
+    }
+  } catch (error) {
+    currentUser.value = null
+    console.error('当前登录状态检查失败', error)
+  } finally {
+    authReady.value = true
   }
 }
 
@@ -653,24 +688,26 @@ onMounted(() => {
   window.addEventListener('scroll', handleScroll, { passive: true })
   window.addEventListener('resize', scheduleRenderCharts)
   window.addEventListener('hashchange', () => {
+    if (pendingFullPageReload) return
     const parts = window.location.hash?.replace('#/', '').split('/') || ['home']
     const nextPage = parts[0] || 'home'
     if (!guardPageAccess(nextPage)) {
       navigate('home')
       return
     }
-    currentPage.value = nextPage
-    currentArticleId.value = parts[0] === 'article' ? parts[1] : currentArticleId.value
-    currentAlertId.value = parts[0] === 'alert-detail' ? parts[1] : null
-    if (currentPage.value === 'alert-detail' && currentAlertId.value) {
-      loadAlertStudentDetail(currentAlertId.value)
-    }
-    if (currentPage.value === 'profile') {
-      loadUserProfile()
-    }
-    scheduleScrollMotion()
+    window.location.reload()
   })
-  nextTick(scheduleScrollMotion)
+  nextTick(() => {
+    scheduleScrollMotion()
+    const pendingHomeSection = window.sessionStorage.getItem('pendingHomeSection')
+    if (currentPage.value === 'home' && pendingHomeSection) {
+      window.sessionStorage.removeItem('pendingHomeSection')
+      document.querySelector(`#${pendingHomeSection}`)?.scrollIntoView({
+        behavior: 'smooth',
+        block: pendingHomeSection === 'home' ? 'start' : 'center',
+      })
+    }
+  })
 })
 
 onUnmounted(() => {
@@ -1014,6 +1051,35 @@ function statusLabel(status) {
   return labels[status] || status || '未知状态'
 }
 
+function alertLevelLabel(level) {
+  const labels = {
+    notice: '关注',
+    warning: '预警',
+    critical: '危机',
+  }
+  return labels[level] || level || '未知等级'
+}
+
+function riskLevelLabel(level) {
+  const labels = {
+    low: '低',
+    medium: '中',
+    high: '高',
+  }
+  return labels[level] || level || '未知风险'
+}
+
+function treeholeCategoryLabel(category) {
+  const labels = {
+    study: '学业压力',
+    relationship: '人际关系',
+    family: '家庭关系',
+    growth: '自我成长',
+    other: '其他',
+  }
+  return labels[category] || category || '其他'
+}
+
 function formatDateTime(value) {
   if (!value) return '时间待定'
   return String(value).replace('T', ' ').slice(0, 16)
@@ -1131,9 +1197,16 @@ function downloadInsightCharts() {
 }
 
 function openAlertStudentDetail(alert) {
+  if (!guardPageAccess('alert-detail')) {
+    return
+  }
+  const alertPath = `/alert-detail/${alert.id}`
   currentAlertId.value = alert.id
   currentPage.value = 'alert-detail'
-  window.location.hash = `/alert-detail/${alert.id}`
+  if (reloadIntoPage(alertPath)) {
+    return
+  }
+  window.location.hash = alertPath
   window.scrollTo({ top: 0, behavior: 'smooth' })
   loadAlertStudentDetail(alert.id)
 }
@@ -1199,8 +1272,9 @@ async function editAlert(alert) {
         <a v-if="canViewAlerts" class="alert-nav-link" href="#/alerts" @click.prevent="navigate('alerts')">预警管理</a>
       </nav>
 
-      <div class="auth-actions">
-        <template v-if="currentUser">
+      <div :class="['auth-actions', { ready: authReady }]">
+        <div v-if="!authReady" class="auth-actions-placeholder" aria-hidden="true"></div>
+        <template v-else-if="currentUser">
           <div class="user-menu">
             <button class="user-chip" type="button" @click="navigate('profile')">{{ currentUser.name }}</button>
             <div class="user-dropdown">
@@ -1384,7 +1458,7 @@ async function editAlert(alert) {
           <h2>科普文章与自助干预内容动态更新</h2>
         </div>
 
-        <div v-if="currentUser" class="compact-list resource-list">
+        <div class="compact-list resource-list">
           <article
             v-for="(article, index) in homeArticles"
             :key="article.id"
@@ -1400,10 +1474,6 @@ async function editAlert(alert) {
             </div>
           </article>
         </div>
-        <button v-else class="locked-resource-card scroll-converge" type="button" v-bind="motionAttrs(0, 1, 96)" @click="navigate('resources')">
-          <strong>心理资源</strong>
-          <span>登录后查看</span>
-        </button>
         <button class="more-link" type="button" @click="navigate('resources')">&gt;&gt;&gt;更多</button>
       </section>
 
@@ -1875,7 +1945,7 @@ async function editAlert(alert) {
         <h3>危机预警</h3>
         <div class="module-list">
           <article v-for="alert in moduleData?.alerts" :key="alert.id" class="alert-card">
-            <strong>{{ alert.student_name }} · {{ alert.level }}</strong>
+            <strong>{{ alert.student_name }} · {{ alertLevelLabel(alert.level) }}</strong>
             <p>{{ alert.trigger }}</p>
             <span>{{ formatDateTime(alert.created_at) }} · {{ alert.handled ? '已处理' : '待跟进' }}</span>
             <div class="admin-actions">
@@ -1910,7 +1980,7 @@ async function editAlert(alert) {
           <div class="alert-summary-strip">
             <article>
               <span>预警等级</span>
-              <strong>{{ selectedAlertDetail.alert.level }}</strong>
+              <strong>{{ alertLevelLabel(selectedAlertDetail.alert.level) }}</strong>
             </article>
             <article>
               <span>触发原因</span>
@@ -1951,7 +2021,7 @@ async function editAlert(alert) {
             <section>
               <h5>发布的树洞</h5>
               <article v-for="post in selectedAlertDetail.treeholes" :key="`treehole-${post.id}`">
-                <strong>{{ post.category }} · {{ post.mood_tag || '未标记' }} · {{ post.risk_flag ? '有风险标记' : '无风险标记' }}</strong>
+                <strong>{{ treeholeCategoryLabel(post.category) }} · {{ post.mood_tag || '未标记' }} · {{ post.risk_flag ? '有风险标记' : '无风险标记' }}</strong>
                 <span>{{ formatDateTime(post.created_at) }}</span>
                 <p>{{ post.content }}</p>
               </article>
@@ -1961,7 +2031,7 @@ async function editAlert(alert) {
             <section>
               <h5>心理测评</h5>
               <article v-for="record in selectedAlertDetail.records" :key="`record-${record.id}`">
-                <strong>{{ record.scale_name }} · {{ record.score }} 分 · {{ record.risk_level }}</strong>
+                <strong>{{ record.scale_name }} · {{ record.score }} 分 · {{ riskLevelLabel(record.risk_level) }}</strong>
                 <span>{{ formatDateTime(record.created_at) }}</span>
                 <p>{{ record.suggestion || '暂无建议' }}</p>
               </article>
@@ -1990,7 +2060,7 @@ async function editAlert(alert) {
             <section>
               <h5>历史预警</h5>
               <article v-for="item in selectedAlertDetail.alerts" :key="`alert-history-${item.id}`">
-                <strong>{{ item.level }} · {{ item.handled ? '已处理' : '待跟进' }}</strong>
+                <strong>{{ alertLevelLabel(item.level) }} · {{ item.handled ? '已处理' : '待跟进' }}</strong>
                 <span>{{ formatDateTime(item.created_at) }}</span>
                 <p>{{ item.trigger }}</p>
               </article>
