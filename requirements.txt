@@ -1,5 +1,5 @@
 # Backend runtime dependencies
-# Recommended Python version: 3.11+
+# Python 3.11+ is recommended.
 
 asgiref==3.11.1
 Django==5.2.15

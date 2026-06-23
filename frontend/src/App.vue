@@ -1,7 +1,7 @@
 <script setup>
 import axios from 'axios'
 import * as echarts from 'echarts'
-import { computed, nextTick, onMounted, onUnmounted, ref } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import heroImage from './assets/landing-hero.png'
 import logoMark from './assets/xinqing-logo-mark.svg'
 
@@ -19,6 +19,13 @@ const counselors = ref([])
 const articles = ref([])
 const trendChartRef = ref(null)
 const pressureChartRef = ref(null)
+let trendChart = null
+let pressureChart = null
+let chartResizeObserver = null
+let chartVisibilityObserver = null
+let chartRenderTimer = null
+let chartRenderAttempts = 0
+const maxChartRenderAttempts = 12
 const currentUser = ref(null)
 const initialHashParts = window.location.hash?.replace('#/', '').split('/') || ['home']
 const currentPage = ref(initialHashParts[0] || 'home')
@@ -28,6 +35,8 @@ const moduleData = ref(null)
 const moduleMessage = ref('')
 const currentArticleId = ref(initialHashParts[0] === 'article' ? initialHashParts[1] : null)
 const activeModule = ref('mood')
+const resourcePage = ref(1)
+const resourcePageSize = 24
 const moodForm = ref({
   mood: '平静',
   intensity: 6,
@@ -56,10 +65,19 @@ const authForm = ref({
   password: '',
   confirmPassword: '',
   role: '学生',
+  name: '',
+  email: '',
+  studentNo: '',
+  college: '',
+  grade: '',
+  pressureSources: '',
+  preferredTopics: '',
+  privacyConsent: false,
 })
 
 const pageTitles = {
   home: '首页',
+  register: '账号注册',
   details: '平台详情',
   article: '文章详情',
   mood: '情绪打卡',
@@ -169,7 +187,24 @@ const moduleDetails = [
 const currentRole = computed(() => currentUser.value?.role || 'guest')
 const canWrite = computed(() => ['student', 'admin'].includes(currentRole.value))
 const canManage = computed(() => currentRole.value === 'admin')
+const canViewAlerts = computed(() => ['teacher', 'admin'].includes(currentRole.value))
+const canOperateAppointments = computed(() => ['teacher', 'admin'].includes(currentRole.value))
+const canPublishTreehole = computed(() => ['student', 'admin'].includes(currentRole.value))
+const canReplyTreehole = computed(() => ['student', 'teacher', 'admin'].includes(currentRole.value))
 const currentArticle = computed(() => articles.value.find((item) => String(item.id) === String(currentArticleId.value)))
+const homeCounselors = computed(() => counselors.value.slice(0, 6))
+const homeArticles = computed(() => articles.value.slice(0, 6))
+const resourceTotalPages = computed(() => Math.max(1, Math.ceil(articles.value.length / resourcePageSize)))
+const pagedArticles = computed(() => {
+  const page = Math.min(resourcePage.value, resourceTotalPages.value)
+  const start = (page - 1) * resourcePageSize
+  return articles.value.slice(start, start + resourcePageSize)
+})
+const visibleAppointments = computed(() => {
+  const appointments = moduleData.value?.appointments || []
+  if (['teacher', 'admin'].includes(currentRole.value)) return appointments
+  return appointments.filter((item) => !['pending', 'cancelled'].includes(item.status))
+})
 const readonlyReason = computed(() => {
   if (currentRole.value === 'guest') return '未登录用户只能浏览已经录入的数据，不能新增或修改。'
   if (currentRole.value === 'teacher') return '教师账号仅可查询学生数据和平台内容，不能新增或修改。'
@@ -192,6 +227,12 @@ function handleScroll() {
 }
 
 function navigate(page) {
+  if (page === 'alerts' && !canViewAlerts.value) {
+    currentPage.value = 'home'
+    window.location.hash = '/home'
+    window.scrollTo({ top: 0, behavior: 'smooth' })
+    return
+  }
   currentPage.value = page
   window.location.hash = `/${page}`
   window.scrollTo({ top: 0, behavior: 'smooth' })
@@ -247,7 +288,8 @@ async function loadBackendData() {
     }
     loading.value = false
     await nextTick()
-    renderCharts()
+    setupChartObservers()
+    scheduleRenderCharts()
   } catch (error) {
     loading.value = false
     console.error('Django API 数据加载失败', error)
@@ -266,7 +308,8 @@ async function refreshModules() {
   moodTrend.value = trendRes.data
   pressureData.value = pressureRes.data
   await nextTick()
-  renderCharts()
+  setupChartObservers()
+  scheduleRenderCharts()
 }
 
 async function loadCurrentUser() {
@@ -274,10 +317,66 @@ async function loadCurrentUser() {
   currentUser.value = response.data.authenticated ? response.data.user : null
 }
 
+function chartReady(el) {
+  return el && el.clientWidth > 0 && el.clientHeight > 0
+}
+
+function scheduleRenderCharts({ retry = false } = {}) {
+  if (currentPage.value !== 'home') return
+  if (!retry) chartRenderAttempts = 0
+  window.clearTimeout(chartRenderTimer)
+  chartRenderTimer = window.setTimeout(async () => {
+    await nextTick()
+    requestAnimationFrame(() => {
+      const rendered = renderCharts()
+      resizeCharts()
+      if (!rendered && currentPage.value === 'home' && chartRenderAttempts < maxChartRenderAttempts) {
+        chartRenderAttempts += 1
+        scheduleRenderCharts({ retry: true })
+      }
+    })
+  }, retry ? 80 : 0)
+}
+
+function resizeCharts() {
+  trendChart?.resize()
+  pressureChart?.resize()
+}
+
+function setupChartObservers() {
+  const targets = [trendChartRef.value, pressureChartRef.value].filter(Boolean)
+  if (!targets.length) return
+
+  if (!chartResizeObserver) {
+    chartResizeObserver = new ResizeObserver(() => {
+      scheduleRenderCharts()
+    })
+  }
+
+  if (!chartVisibilityObserver) {
+    chartVisibilityObserver = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((entry) => entry.isIntersecting)) {
+          scheduleRenderCharts()
+        }
+      },
+      { threshold: 0.15 },
+    )
+  }
+
+  targets.forEach((target) => {
+    chartResizeObserver.observe(target)
+    chartVisibilityObserver.observe(target)
+  })
+}
+
 function renderCharts() {
-  if (trendChartRef.value) {
-    const chart = echarts.init(trendChartRef.value)
-    chart.setOption({
+  let renderedTrend = false
+  let renderedPressure = false
+
+  if (chartReady(trendChartRef.value)) {
+    trendChart = trendChart || echarts.init(trendChartRef.value)
+    trendChart.setOption({
       tooltip: { trigger: 'axis' },
       legend: { top: 0, data: ['情绪强度', '睡眠质量'] },
       grid: { top: 44, right: 20, bottom: 28, left: 34 },
@@ -303,11 +402,12 @@ function renderCharts() {
         },
       ],
     })
+    renderedTrend = true
   }
 
-  if (pressureChartRef.value) {
-    const chart = echarts.init(pressureChartRef.value)
-    chart.setOption({
+  if (chartReady(pressureChartRef.value)) {
+    pressureChart = pressureChart || echarts.init(pressureChartRef.value)
+    pressureChart.setOption({
       tooltip: {},
       radar: {
         indicator: pressureData.value.map((item) => ({ name: item.name, max: 8 })),
@@ -323,8 +423,18 @@ function renderCharts() {
         },
       ],
     })
+    renderedPressure = true
   }
+
+  return renderedTrend && renderedPressure
 }
+
+watch([currentPage, moodTrend, pressureData, currentUser], async () => {
+  if (currentPage.value !== 'home' || loading.value) return
+  await nextTick()
+  setupChartObservers()
+  scheduleRenderCharts()
+}, { flush: 'post' })
 
 onMounted(() => {
   handleScroll()
@@ -332,9 +442,15 @@ onMounted(() => {
   loadCurrentUser()
   window.addEventListener('pointermove', handlePointerMove)
   window.addEventListener('scroll', handleScroll, { passive: true })
+  window.addEventListener('resize', scheduleRenderCharts)
   window.addEventListener('hashchange', () => {
     const parts = window.location.hash?.replace('#/', '').split('/') || ['home']
-    currentPage.value = parts[0] || 'home'
+    const nextPage = parts[0] || 'home'
+    if (nextPage === 'alerts' && !canViewAlerts.value) {
+      navigate('home')
+      return
+    }
+    currentPage.value = nextPage
     currentArticleId.value = parts[0] === 'article' ? parts[1] : currentArticleId.value
   })
 })
@@ -342,6 +458,12 @@ onMounted(() => {
 onUnmounted(() => {
   window.removeEventListener('pointermove', handlePointerMove)
   window.removeEventListener('scroll', handleScroll)
+  window.removeEventListener('resize', scheduleRenderCharts)
+  window.clearTimeout(chartRenderTimer)
+  chartResizeObserver?.disconnect()
+  chartVisibilityObserver?.disconnect()
+  trendChart?.dispose()
+  pressureChart?.dispose()
 })
 
 const features = [
@@ -405,6 +527,13 @@ const steps = [
 ]
 
 function openAuth(mode) {
+  if (mode === 'register') {
+    showAuth.value = false
+    authMode.value = 'register'
+    authMessage.value = ''
+    navigate('register')
+    return
+  }
   authMode.value = mode
   showAuth.value = true
   authMessage.value = ''
@@ -417,19 +546,48 @@ async function submitAuth() {
   authMessage.value = ''
 
   try {
-    const url = authMode.value === 'login' ? '/api/auth/login/' : '/api/auth/register/'
+    const payload = {
+      username: authForm.value.username,
+      password: authForm.value.password,
+    }
+    const response = await axios.post('/api/auth/login/', payload)
+    currentUser.value = response.data.user
+    authMessage.value = response.data.detail || '操作成功'
+    showAuth.value = false
+    await refreshModules()
+  } catch (error) {
+    authMessage.value = error.response?.data?.detail || '操作失败，请检查输入后重试。'
+  } finally {
+    authSubmitting.value = false
+  }
+}
+
+async function submitRegister() {
+  authSubmitting.value = true
+  authMessage.value = ''
+
+  try {
     const payload = {
       username: authForm.value.username,
       password: authForm.value.password,
       confirm_password: authForm.value.confirmPassword,
       role: authForm.value.role,
+      name: authForm.value.name,
+      email: authForm.value.email,
+      student_no: authForm.value.studentNo,
+      college: authForm.value.college,
+      grade: authForm.value.grade,
+      pressure_sources: pressureSourceList(authForm.value.pressureSources),
+      preferred_topics: pressureSourceList(authForm.value.preferredTopics),
+      privacy_consent: authForm.value.privacyConsent,
     }
-    const response = await axios.post(url, payload)
+    const response = await axios.post('/api/auth/register/', payload)
     currentUser.value = response.data.user
-    authMessage.value = response.data.detail || '操作成功'
-    showAuth.value = false
+    authMessage.value = response.data.detail || '注册成功'
+    await refreshModules()
+    navigate('details')
   } catch (error) {
-    authMessage.value = error.response?.data?.detail || '操作失败，请检查输入后重试。'
+    authMessage.value = error.response?.data?.detail || '注册失败，请检查输入后重试。'
   } finally {
     authSubmitting.value = false
   }
@@ -466,7 +624,7 @@ async function submitMood() {
 }
 
 async function submitTreehole() {
-  if (!canWrite.value) {
+  if (!canPublishTreehole.value) {
     moduleMessage.value = readonlyReason.value
     return
   }
@@ -505,13 +663,17 @@ async function submitAppointment() {
 }
 
 async function submitReply(postId) {
-  if (!canWrite.value) {
+  if (!canReplyTreehole.value) {
     moduleMessage.value = readonlyReason.value
     return
   }
   const content = replyForms.value[postId]
   if (!content) return
-  await axios.post(`/api/modules/treeholes/${postId}/reply/`, { content })
+  await axios.post(`/api/modules/treeholes/${postId}/reply/`, {
+    content,
+    responder_name: currentUser.value?.name,
+    is_counselor_reply: currentRole.value === 'teacher',
+  })
   replyForms.value[postId] = ''
   moduleMessage.value = '回应已发送。'
   await refreshModules()
@@ -531,6 +693,11 @@ async function adminPatch(url, payload) {
   await refreshModules()
 }
 
+async function permittedPatch(url, payload) {
+  await axios.patch(url, payload)
+  await refreshModules()
+}
+
 async function editTreehole(post) {
   const content = window.prompt('修改树洞内容', post.content)
   if (content !== null) {
@@ -538,14 +705,35 @@ async function editTreehole(post) {
   }
 }
 
-async function editAppointment(item) {
-  const status = window.prompt('修改预约状态：pending / confirmed / finished / cancelled', item.status)
-  if (status) {
-    await adminPatch(`/api/appointments/${item.id}/`, { status })
+function statusLabel(status) {
+  const labels = {
+    pending: '待确认',
+    confirmed: '已确认',
+    finished: '已完成',
+    cancelled: '已取消',
   }
+  return labels[status] || status || '未知状态'
+}
+
+function formatDateTime(value) {
+  if (!value) return '时间待定'
+  return String(value).replace('T', ' ').slice(0, 16)
+}
+
+async function changeAppointmentStatus(item, event) {
+  const nextStatus = event.target.value
+  if (!canOperateAppointments.value || nextStatus === item.status) return
+  await permittedPatch(`/api/appointments/${item.id}/`, { status: nextStatus })
+  moduleMessage.value = '预约状态已更新。'
+}
+
+function changeResourcePage(page) {
+  resourcePage.value = Math.min(Math.max(1, page), resourceTotalPages.value)
+  window.scrollTo({ top: 0, behavior: 'smooth' })
 }
 
 async function editAlert(alert) {
+  if (!canManage.value) return
   await adminPatch(`/api/crisis-alerts/${alert.id}/`, { handled: !alert.handled })
 }
 </script>
@@ -576,7 +764,7 @@ async function editAlert(alert) {
         <a href="#/assessment" @click.prevent="navigate('assessment')">心理测评</a>
         <a href="#/appointment" @click.prevent="navigate('appointment')">咨询预约</a>
         <a href="#/resources" @click.prevent="navigate('resources')">心理资源</a>
-        <a href="#/alerts" @click.prevent="navigate('alerts')">预警管理</a>
+        <a v-if="canViewAlerts" class="alert-nav-link" href="#/alerts" @click.prevent="navigate('alerts')">预警管理</a>
       </nav>
 
       <div class="auth-actions">
@@ -683,9 +871,9 @@ async function editAlert(alert) {
 
       <section id="insights" class="section insight-section scroll-follow follow-medium">
         <div class="section-heading align-left wide-heading">
-          <span class="eyebrow">Django 数据驱动</span>
+          <span class="eyebrow">心晴数据洞察</span>
           <h2>把心理状态转化为可理解的趋势</h2>
-          <p>下方数据来自 Django RESTful API，用于呈现情绪变化、压力来源、预警数量和资源更新情况。</p>
+          <p>下方数据来自平台后端，用于呈现情绪变化、压力来源、预警数量和资源更新情况。</p>
         </div>
 
         <div v-if="loading" class="data-loading">正在从后端加载数据...</div>
@@ -729,19 +917,20 @@ async function editAlert(alert) {
           <p>后端根据学生压力来源、关注主题与咨询师擅长领域计算匹配分，后续可替换为更完整的推荐算法。</p>
         </div>
 
-        <div class="support-grid">
-          <article v-for="counselor in counselors" :key="counselor.id" class="counselor-card" @click="navigate('appointment')">
-            <span class="counselor-avatar" :style="{ background: counselor.avatar_color }">{{ counselor.name.slice(0, 1) }}</span>
-            <div>
+        <div class="compact-list support-list">
+          <article v-for="counselor in homeCounselors" :key="counselor.id" class="counselor-row" @click="navigate('appointment')">
+            <span class="counselor-avatar small" :style="{ background: counselor.avatar_color }">{{ counselor.name.slice(0, 1) }}</span>
+            <div class="compact-main">
               <h3>{{ counselor.name }}</h3>
               <p>{{ counselor.title }}</p>
-              <div class="tag-list">
-                <span v-for="tag in counselor.specialties" :key="tag">{{ tag }}</span>
-              </div>
+            </div>
+            <div class="tag-list compact-tags">
+              <span v-for="tag in counselor.specialties.slice(0, 3)" :key="tag">{{ tag }}</span>
             </div>
             <strong>{{ counselor.match_score }}%</strong>
           </article>
         </div>
+        <button class="more-link" type="button" @click="navigate('appointment')">&gt;&gt;&gt;更多</button>
       </section>
 
       <section id="resources" class="section resource-section scroll-follow follow-medium">
@@ -750,16 +939,17 @@ async function editAlert(alert) {
           <h2>科普文章与自助干预内容动态更新</h2>
         </div>
 
-        <div class="resource-grid">
-          <article v-for="article in articles" :key="article.id" class="resource-card" @click="openArticle(article)">
+        <div class="compact-list resource-list">
+          <article v-for="article in homeArticles" :key="article.id" class="resource-row" @click="openArticle(article)">
             <span>{{ article.category }} · {{ article.source }}</span>
             <h3>{{ article.title }}</h3>
             <p>{{ article.summary }}</p>
-            <div class="tag-list">
-              <span v-for="tag in article.tags" :key="tag">{{ tag }}</span>
+            <div class="tag-list compact-tags">
+              <span v-for="tag in article.tags.slice(0, 3)" :key="tag">{{ tag }}</span>
             </div>
           </article>
         </div>
+        <button class="more-link" type="button" @click="navigate('resources')">&gt;&gt;&gt;更多</button>
       </section>
 
       <section id="modules" class="section module-section scroll-follow follow-deep">
@@ -807,6 +997,51 @@ async function editAlert(alert) {
         <button class="text-button" type="button" @click="navigate('home')">返回首页</button>
         <span class="eyebrow">{{ pageTitles[currentPage] }}</span>
         <h1>{{ pageTitles[currentPage] }}</h1>
+      </section>
+
+      <section v-if="currentPage === 'register'" class="register-page module-panel page-panel">
+        <div class="register-heading">
+          <span class="eyebrow">学生档案</span>
+          <h2>创建账号并完善基础信息</h2>
+          <p>这些信息会写入学生档案，用于后续情绪记录、测评、咨询预约和资源推荐。</p>
+        </div>
+
+        <form class="register-form" @submit.prevent="submitRegister">
+          <div class="registration-grid">
+            <label>账号<input v-model.trim="authForm.username" placeholder="用于登录的账号" required /></label>
+            <label>姓名<input v-model.trim="authForm.name" placeholder="真实姓名或常用称呼" /></label>
+            <label>邮箱<input v-model.trim="authForm.email" type="email" placeholder="用于联系和通知" /></label>
+            <label>角色
+              <select v-model="authForm.role">
+                <option>学生</option>
+                <option>心理老师</option>
+                <option>管理员</option>
+              </select>
+            </label>
+            <label>密码<input v-model="authForm.password" placeholder="请输入密码" type="password" required /></label>
+            <label>确认密码<input v-model="authForm.confirmPassword" placeholder="再次输入密码" type="password" required /></label>
+
+            <template v-if="authForm.role === '学生'">
+              <label>学号<input v-model.trim="authForm.studentNo" placeholder="学生档案唯一编号" required /></label>
+              <label>学院<input v-model.trim="authForm.college" placeholder="所在学院" /></label>
+              <label>年级<input v-model.trim="authForm.grade" placeholder="例如：2023级" /></label>
+              <label>压力来源<input v-model="authForm.pressureSources" placeholder="用逗号分隔，如学业、人际、睡眠" /></label>
+              <label class="full">关注主题<input v-model="authForm.preferredTopics" placeholder="用逗号分隔，如焦虑调节、时间管理、咨询预约" /></label>
+              <label class="consent full">
+                <input v-model="authForm.privacyConsent" type="checkbox" />
+                <span>同意平台在校内心理支持场景下保存并使用以上信息</span>
+              </label>
+            </template>
+          </div>
+
+          <p v-if="authMessage" class="auth-message">{{ authMessage }}</p>
+          <div class="register-actions">
+            <button class="solid-button large" type="submit" :disabled="authSubmitting">
+              {{ authSubmitting ? '提交中...' : '完成注册' }}
+            </button>
+            <button class="text-button" type="button" @click="openAuth('login')">已有账号，去登录</button>
+          </div>
+        </form>
       </section>
 
       <section v-if="currentPage === 'details'" class="detail-page">
@@ -875,7 +1110,7 @@ async function editAlert(alert) {
 
       <section v-if="currentPage === 'treehole'" class="module-panel page-panel">
         <h3>匿名树洞</h3>
-        <form v-if="canWrite" class="module-form" @submit.prevent="submitTreehole">
+        <form v-if="canPublishTreehole" class="module-form" @submit.prevent="submitTreehole">
           <label>分类
             <select v-model="treeholeForm.category">
               <option value="study">学业压力</option>
@@ -897,7 +1132,7 @@ async function editAlert(alert) {
             <div class="reply-list">
               <p v-for="reply in post.replies" :key="reply.id">{{ reply.responder_name }}：{{ reply.content }}</p>
             </div>
-            <form v-if="canWrite" class="reply-form" @submit.prevent="submitReply(post.id)">
+            <form v-if="canReplyTreehole" class="reply-form" @submit.prevent="submitReply(post.id)">
               <input v-model="replyForms[post.id]" placeholder="写一句温和回应" />
               <button type="submit">回应</button>
             </form>
@@ -937,39 +1172,66 @@ async function editAlert(alert) {
 
       <section v-if="currentPage === 'appointment'" class="module-panel page-panel">
         <h3>咨询预约</h3>
-        <form v-if="canWrite" class="module-form" @submit.prevent="submitAppointment">
-          <label>咨询师
-            <select v-model="appointmentForm.counselor">
-              <option v-for="item in moduleData?.counselors" :key="item.id" :value="item.id">{{ item.name }} · {{ item.title }}</option>
-            </select>
-          </label>
-          <label>预约时间<input v-model="appointmentForm.scheduled_at" type="datetime-local" /></label>
-          <label class="full">咨询主题<input v-model="appointmentForm.topic" required /></label>
-          <label class="full">保密备注<textarea v-model="appointmentForm.confidential_note"></textarea></label>
-          <button class="solid-button large" type="submit">提交预约</button>
-        </form>
-        <p v-if="moduleMessage" class="module-message">{{ moduleMessage }}</p>
-        <div class="module-list">
-          <article v-for="item in moduleData?.appointments" :key="item.id">
-            <strong>{{ item.student_name }} → {{ item.counselor_name }} · {{ item.status }}</strong>
-            <p>{{ item.topic }} ｜ {{ item.scheduled_at }}</p>
-            <div v-if="canManage" class="admin-actions">
-              <button type="button" @click="editAppointment(item)">改状态</button>
-              <button class="danger-button" type="button" @click="adminDelete(`/api/appointments/${item.id}/`)">删除</button>
-            </div>
-          </article>
+        <div class="appointment-board appointment-info-board">
+          <h4>同学预约信息</h4>
+          <div v-if="visibleAppointments.length" class="appointment-strip">
+            <article v-for="item in visibleAppointments" :key="`strip-${item.id}`">
+              <strong>{{ item.student_name }}</strong>
+              <span>{{ item.counselor_name }}</span>
+              <div class="tag-list appointment-tags">
+                <span v-for="tag in (item.counselor_specialties || []).slice(0, 3)" :key="tag">{{ tag }}</span>
+              </div>
+              <span>{{ item.topic }}</span>
+              <span>{{ formatDateTime(item.scheduled_at) }}</span>
+              <label v-if="canOperateAppointments" class="status-select compact-status">
+                <select :value="item.status" @change="changeAppointmentStatus(item, $event)">
+                  <option value="pending">待确认</option>
+                  <option value="confirmed">已确认</option>
+                  <option value="finished">已完成</option>
+                  <option value="cancelled">已取消</option>
+                </select>
+              </label>
+              <em v-else>{{ statusLabel(item.status) }}</em>
+              <button v-if="canManage" class="danger-button appointment-delete" type="button" @click="adminDelete(`/api/appointments/${item.id}/`)">删除</button>
+            </article>
+          </div>
+          <p v-else class="empty-state">暂无可展示的预约信息。</p>
+        </div>
+
+        <div v-if="canWrite" class="appointment-board appointment-form-board">
+          <h4>学生咨询预约表</h4>
+          <form class="module-form" @submit.prevent="submitAppointment">
+            <label>咨询师
+              <select v-model="appointmentForm.counselor">
+                <option v-for="item in moduleData?.counselors" :key="item.id" :value="item.id">{{ item.name }} · {{ item.title }}</option>
+              </select>
+            </label>
+            <label>预约时间<input v-model="appointmentForm.scheduled_at" type="datetime-local" /></label>
+            <label class="full">咨询主题<input v-model="appointmentForm.topic" required /></label>
+            <label class="full">保密备注<textarea v-model="appointmentForm.confidential_note"></textarea></label>
+            <button class="solid-button large" type="submit">提交预约</button>
+          </form>
+          <p v-if="moduleMessage" class="module-message">{{ moduleMessage }}</p>
         </div>
       </section>
 
       <section v-if="currentPage === 'resources'" class="module-panel page-panel">
         <h3>心理资源</h3>
-        <div class="resource-grid">
-          <article v-for="article in articles" :key="article.id" class="resource-card" @click="openArticle(article)">
+        <div class="topic-resource-list">
+          <article v-for="article in pagedArticles" :key="article.id" class="topic-resource-item">
+            <h3 class="article-title-link" @click="openArticle(article)">{{ article.title }}</h3>
             <span>{{ article.category }} · {{ article.source }}</span>
-            <h3>{{ article.title }}</h3>
             <p>{{ article.summary }}</p>
-            <button v-if="canManage" class="danger-button" type="button" @click="adminDelete(`/api/articles/${article.id}/`)">删除</button>
+            <div class="tag-list compact-tags">
+              <span v-for="tag in article.tags.slice(0, 4)" :key="tag">{{ tag }}</span>
+            </div>
+            <button v-if="canManage" class="danger-button" type="button" @click.stop="adminDelete(`/api/articles/${article.id}/`)">删除</button>
           </article>
+        </div>
+        <div class="pagination-bar">
+          <button type="button" :disabled="resourcePage <= 1" @click="changeResourcePage(resourcePage - 1)">上一页</button>
+          <span>第 {{ resourcePage }} / {{ resourceTotalPages }} 页 · 共 {{ articles.length }} 篇</span>
+          <button type="button" :disabled="resourcePage >= resourceTotalPages" @click="changeResourcePage(resourcePage + 1)">下一页</button>
         </div>
       </section>
 
@@ -995,7 +1257,7 @@ async function editAlert(alert) {
         </template>
       </section>
 
-      <section v-if="currentPage === 'alerts'" class="module-panel page-panel">
+      <section v-if="currentPage === 'alerts' && canViewAlerts" class="module-panel page-panel alerts-panel">
         <h3>危机预警</h3>
         <div class="module-list">
           <article v-for="alert in moduleData?.alerts" :key="alert.id" class="alert-card">
@@ -1007,7 +1269,7 @@ async function editAlert(alert) {
             </div>
           </article>
         </div>
-        <a class="outline-link admin-link" href="http://127.0.0.1:8000/admin/" target="_blank" rel="noreferrer">进入 Django 后台管理</a>
+        <a v-if="canManage" class="outline-link admin-link" href="http://127.0.0.1:8000/admin/" target="_blank" rel="noreferrer">进入 Django 后台管理</a>
       </section>
     </main>
 
@@ -1058,29 +1320,17 @@ async function editAlert(alert) {
       <section class="auth-modal" role="dialog" aria-modal="true" aria-label="登录注册">
         <button class="modal-close" type="button" aria-label="关闭" @click="showAuth = false">×</button>
         <div class="auth-tabs">
-          <button :class="{ active: authMode === 'login' }" type="button" @click="authMode = 'login'">登录</button>
-          <button :class="{ active: authMode === 'register' }" type="button" @click="authMode = 'register'">注册</button>
+          <button class="active" type="button">登录</button>
+          <button type="button" @click="openAuth('register')">注册</button>
         </div>
-        <h2>{{ authMode === 'login' ? '欢迎回来' : '创建账号' }}</h2>
-        <p>{{ authMode === 'login' ? '登录后进入学生端或教师端。' : '注册后可进行情绪记录、测评和预约。' }}</p>
+        <h2>欢迎回来</h2>
+        <p>登录后进入学生端或教师端。</p>
         <form class="auth-form" @submit.prevent="submitAuth">
           <input v-model.trim="authForm.username" placeholder="学号 / 工号 / 邮箱" required />
           <input v-model="authForm.password" placeholder="密码" type="password" required />
-          <input
-            v-if="authMode === 'register'"
-            v-model="authForm.confirmPassword"
-            placeholder="确认密码"
-            type="password"
-            required
-          />
-          <select v-if="authMode === 'register'" v-model="authForm.role">
-            <option>学生</option>
-            <option>心理老师</option>
-            <option>管理员</option>
-          </select>
           <p v-if="authMessage" class="auth-message">{{ authMessage }}</p>
           <button class="solid-button large" type="submit" :disabled="authSubmitting">
-            {{ authSubmitting ? '提交中...' : authMode === 'login' ? '登录' : '注册' }}
+            {{ authSubmitting ? '提交中...' : '登录' }}
           </button>
         </form>
       </section>

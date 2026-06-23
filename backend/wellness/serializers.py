@@ -137,6 +137,7 @@ class MoodEntrySerializer(serializers.ModelSerializer):
 class AppointmentSerializer(serializers.ModelSerializer):
     student_name = serializers.CharField(source='student.user.get_full_name', read_only=True)
     counselor_name = serializers.CharField(source='counselor.name', read_only=True)
+    counselor_specialties = serializers.JSONField(source='counselor.specialties', read_only=True)
 
     class Meta:
         model = Appointment
@@ -146,6 +147,7 @@ class AppointmentSerializer(serializers.ModelSerializer):
             'student_name',
             'counselor',
             'counselor_name',
+            'counselor_specialties',
             'scheduled_at',
             'topic',
             'status',

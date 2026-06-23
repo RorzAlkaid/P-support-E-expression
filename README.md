@@ -1,83 +1,86 @@
-# 心晴校园心理支持与情绪表达平台
+# 大学生心理支持与情绪表达平台
 
-基于 Django + Vue 的大学生心理支持与情绪表达平台，面向高校学生、心理老师与管理者，提供情绪记录、匿名表达、心理测评、咨询预约、风险提示和校园心理支持展示入口。
+基于 Django + Vue 的大学生心理健康服务平台，围绕“隐私化、专业化、便捷化”的目标，提供心理资源、情绪记录、匿名树洞、心理测评、咨询预约、数据可视化、风险预警和后台管理等功能。
 
-## 项目概述
+## 项目功能
 
-本项目当前以前端首页展示与基础后端工程搭建为主。前端使用 Vue 3 + Vite 构建，已完成品牌视觉、暖色主题首页、交互动效、响应式布局、登录/注册弹窗和底部信息展示栏。后端使用 Django 5 + Django REST framework 初始化，已配置基础项目、SQLite 数据库、CORS 与管理后台入口，后续可继续扩展用户、情绪打卡、树洞、测评、预约和预警等业务接口。
-
-## 核心功能规划
-
-- 情绪打卡：记录表情、强度、影响因素和每日心情变化，形成连续情绪轨迹。
-- 匿名树洞：支持学生匿名表达压力、关系和成长困惑，降低表达门槛。
-- 心理测评：提供压力、睡眠、情绪等自评问卷，结果用于风险提示和资源推荐。
-- 咨询预约：展示心理老师时间、擅长方向与预约状态，支持学生线上预约。
-- 风险提醒：结合测评、表达和情绪趋势，为教师端提供及时响应线索。
-- 校园支持展示：首页呈现平台定位、服务流程、使用场景和联系信息。
-
-## 已完成内容
-
-- 设计并应用“心晴校园”暖色图案版 logo。
-- 替换 favicon，统一首页品牌视觉。
-- 首页整体改为玫瑰红、粉色、暖橙色调。
-- 调整首页功能条目为横向铺满布局。
-- 为功能卡片子标题增加 hover / focus 下拉展示内容。
-- 增加鼠标跟随水墨风背景动效。
-- 增加滚动时内容跟随下沉和层次错动效果。
-- 增加黑色底部展示栏，包含学校、邮箱、电话、服务说明和平台标签。
-- 修复页面标题、语言声明和主要中文文案。
-- 完成前端生产构建验证。
+- 用户登录注册：支持未登录浏览、学生、教师、管理员等不同访问权限。
+- 首页功能简介：用户可以从首页功能中心进入各业务模块。
+- 模块详情页：集中展示平台各模块用途，方便学生和教师了解系统内容。
+- 心理资源：展示科普文章，支持文章详情页查看。
+- 情绪日记：学生可记录情绪、强度、压力来源和备注。
+- 匿名树洞：学生可匿名表达压力、关系和成长困扰。
+- 心理测评：支持心理量表记录与结果展示。
+- 咨询预约：学生可选择咨询师并提交预约，教师可查看，管理员可管理。
+- 咨询师数据：通过爬虫从公开高校心理咨询中心页面同步咨询师姓名、职称和专长。
+- 数据可视化：使用 ECharts 展示校园心理健康概览、情绪趋势和压力分布。
+- 后台管理：使用 Django Admin + SimpleUI，支持中文化数据管理。
+- 定时更新：提供 Windows 计划任务脚本，每日自动同步心理资源和咨询师数据。
 
 ## 技术栈
+
+### 后端
+
+- Python 3.11+
+- Django 5.2
+- Django REST framework
+- django-cors-headers
+- django-simpleui
+- SQLite
 
 ### 前端
 
 - Vue 3
 - Vite
-- 原生 CSS 响应式布局与动画
-
-### 后端
-
-- Python
-- Django 5
-- Django REST framework
-- django-cors-headers
-- SQLite（开发环境默认数据库）
+- Axios
+- ECharts
+- Pinia
+- Vue Router
 
 ## 目录结构
 
 ```text
 P-support-E-expression/
 ├── backend/
-│   ├── manage.py
-│   └── config/
-│       ├── settings.py
-│       ├── urls.py
-│       ├── asgi.py
-│       └── wsgi.py
+│   ├── config/
+│   ├── wellness/
+│   │   ├── management/
+│   │   │   └── commands/
+│   │   │       ├── seed_demo.py
+│   │   │       ├── sync_authoritative_resources.py
+│   │   │       └── sync_authoritative_counselors.py
+│   │   ├── migrations/
+│   │   ├── models.py
+│   │   ├── serializers.py
+│   │   ├── urls.py
+│   │   └── views.py
+│   ├── db.sqlite3
+│   └── manage.py
 ├── frontend/
-│   ├── index.html
+│   ├── src/
+│   │   ├── App.vue
+│   │   ├── main.js
+│   │   └── style.css
 │   ├── package.json
-│   ├── vite.config.js
-│   └── src/
-│       ├── App.vue
-│       ├── main.js
-│       ├── style.css
-│       └── assets/
+│   └── vite.config.js
+├── scripts/
+│   ├── setup_daily_resource_sync.ps1
+│   └── setup_daily_counselor_sync.ps1
 ├── requirements.txt
 └── README.md
 ```
 
-## 运行方式
+## 后端运行
 
-### 1. 后端环境
+在项目根目录执行：
 
-```bash
+```powershell
 python -m venv .venv
-.venv\Scripts\activate
+.\.venv\Scripts\activate
 pip install -r requirements.txt
 cd backend
 python manage.py migrate
+python manage.py seed_demo
 python manage.py runserver
 ```
 
@@ -87,9 +90,17 @@ python manage.py runserver
 http://127.0.0.1:8000/
 ```
 
-### 2. 前端环境
+后台管理地址：
 
-```bash
+```text
+http://127.0.0.1:8000/admin/
+```
+
+## 前端运行
+
+在项目根目录执行：
+
+```powershell
 cd frontend
 npm install
 npm run dev
@@ -101,41 +112,70 @@ npm run dev
 http://127.0.0.1:5173/
 ```
 
-如果 5173 端口被占用，Vite 会自动切换到其他端口，例如 5174。
+生产构建：
 
-### 3. 前端构建
-
-```bash
+```powershell
 cd frontend
 npm run build
 ```
 
-## 当前联系信息
+## 数据同步命令
 
-- 学校：北京城市学院
-- 邮箱：1751551811@qq.com
-- 电话：18513020539；13107209820
+同步权威心理科普资源：
 
-## 开发阶段总结
+```powershell
+cd backend
+..\.venv\Scripts\python.exe manage.py sync_authoritative_resources --force
+```
 
-当日开发阶段：
+同步公开高校心理咨询中心的咨询师数据：
 
-- 需求分析
-- 概要设计
-- 详细设计
-- 代码开发
-- 功能测试
-- bug 修复
-- 文档撰写
+```powershell
+cd backend
+..\.venv\Scripts\python.exe manage.py sync_authoritative_counselors --force
+```
 
-小组当日核心工作：
+说明：咨询师爬虫当前只写入姓名、职称和专长，不保存来源链接、资质说明、可预约时段等额外字段。
 
-围绕“大学生心理支持与情绪表达平台”的首页展示和基础工程搭建开展开发工作。前端完成平台品牌设计、暖色主题视觉、首页模块布局、功能卡片交互、鼠标水墨跟随背景、滚动跟随动画、登录注册弹窗、底部黑色信息展示栏和响应式适配；后端完成 Django 项目基础配置、REST framework 与 CORS 配置、SQLite 开发数据库配置和管理后台入口保留；同时完成 README 与 requirements 依赖文档整理，并通过前端构建验证当前版本可正常打包。
+## 每日自动更新
 
-## 后续计划
+项目提供 Windows 计划任务脚本：
 
-- 建立用户、角色和权限模型。
-- 开发情绪打卡、匿名树洞、测评问卷和咨询预约接口。
-- 完成前后端接口联调。
-- 增加教师端数据看板与风险提醒流程。
-- 完善数据隐私、表单校验和部署配置。
+```powershell
+.\scripts\setup_daily_resource_sync.ps1
+.\scripts\setup_daily_counselor_sync.ps1
+```
+
+执行后会注册每日自动任务，定时运行对应的 Django 管理命令。
+
+## 常用检查
+
+后端检查：
+
+```powershell
+cd backend
+..\.venv\Scripts\python.exe manage.py check
+```
+
+前端构建检查：
+
+```powershell
+cd frontend
+npm run build
+```
+
+## 数据库说明
+
+开发环境默认使用 SQLite：
+
+```text
+backend/db.sqlite3
+```
+
+如果使用 Navicat 连接，选择 SQLite 连接类型，然后选择该数据库文件即可。SQLite 本地文件模式没有数据库账号和密码。
+
+## 备注
+
+- 本项目当前用于课程设计、毕业设计或原型演示场景。
+- 爬虫数据来自公开网页，仅用于系统功能演示和初始化数据。
+- 部署到云端前需要关闭 `DEBUG`、配置正式 `SECRET_KEY`、设置 `ALLOWED_HOSTS`，并根据实际需要替换为 MySQL/PostgreSQL 等数据库。

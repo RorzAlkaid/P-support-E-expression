@@ -87,6 +87,12 @@ def serialize_user(user):
     }
 
 
+def normalize_list_value(value):
+    if isinstance(value, list):
+        return [str(item).strip() for item in value if str(item).strip()]
+    return [item.strip() for item in str(value or '').replace('，', ',').replace('、', ',').split(',') if item.strip()]
+
+
 class StudentProfileViewSet(viewsets.ModelViewSet):
     authentication_classes = [CsrfExemptSessionAuthentication]
     queryset = StudentProfile.objects.select_related('user').all()
@@ -118,6 +124,7 @@ class ArticleViewSet(viewsets.ModelViewSet):
     authentication_classes = [CsrfExemptSessionAuthentication]
     queryset = Article.objects.filter(is_published=True)
     serializer_class = ArticleSerializer
+    pagination_class = None
 
     def initial(self, request, *args, **kwargs):
         super().initial(request, *args, **kwargs)
@@ -181,8 +188,20 @@ class AppointmentViewSet(viewsets.ModelViewSet):
 
     def initial(self, request, *args, **kwargs):
         super().initial(request, *args, **kwargs)
-        if request.method not in ['GET', 'HEAD', 'OPTIONS'] and user_role(request.user) != AccountProfile.ROLE_ADMIN:
+        role = user_role(request.user)
+        if request.method == 'PATCH' and role in [AccountProfile.ROLE_TEACHER, AccountProfile.ROLE_ADMIN]:
+            return
+        if request.method not in ['GET', 'HEAD', 'OPTIONS'] and role != AccountProfile.ROLE_ADMIN:
             self.permission_denied(request, message='只有管理员可以维护基础数据。')
+
+    def partial_update(self, request, *args, **kwargs):
+        role = user_role(request.user)
+        if role == AccountProfile.ROLE_TEACHER:
+            status_value = request.data.get('status')
+            allowed_statuses = {choice[0] for choice in Appointment.STATUS_CHOICES}
+            if set(request.data.keys()) != {'status'} or status_value not in allowed_statuses:
+                return Response({'detail': '教师只能修改预约状态。'}, status=status.HTTP_403_FORBIDDEN)
+        return super().partial_update(request, *args, **kwargs)
 
 
 class CrisisAlertViewSet(viewsets.ModelViewSet):
@@ -192,7 +211,14 @@ class CrisisAlertViewSet(viewsets.ModelViewSet):
 
     def initial(self, request, *args, **kwargs):
         super().initial(request, *args, **kwargs)
-        if request.method not in ['GET', 'HEAD', 'OPTIONS'] and user_role(request.user) != AccountProfile.ROLE_ADMIN:
+        role = user_role(request.user)
+        if request.method in ['GET', 'HEAD', 'OPTIONS'] and role in [AccountProfile.ROLE_TEACHER, AccountProfile.ROLE_ADMIN]:
+            return
+        if request.method not in ['GET', 'HEAD', 'OPTIONS'] and role == AccountProfile.ROLE_ADMIN:
+            return
+        if request.method in ['GET', 'HEAD', 'OPTIONS']:
+            self.permission_denied(request, message='只有教师和管理员可以查看预警数据。')
+        else:
             self.permission_denied(request, message='只有管理员可以维护基础数据。')
 
 
@@ -332,7 +358,13 @@ def module_center(request):
     student = get_request_student(request) if role == AccountProfile.ROLE_STUDENT else None
     mood_queryset = MoodEntry.objects.all() if not student else MoodEntry.objects.filter(student=student)
     record_queryset = AssessmentRecord.objects.all() if not student else AssessmentRecord.objects.filter(student=student)
-    appointment_queryset = Appointment.objects.all() if not student else Appointment.objects.filter(student=student)
+    appointment_queryset = Appointment.objects.all()
+    if role not in [AccountProfile.ROLE_TEACHER, AccountProfile.ROLE_ADMIN]:
+        appointment_queryset = appointment_queryset.filter(status__in=[
+            Appointment.STATUS_CONFIRMED,
+            Appointment.STATUS_FINISHED,
+        ])
+    alert_queryset = CrisisAlert.objects.filter(handled=False) if role in [AccountProfile.ROLE_TEACHER, AccountProfile.ROLE_ADMIN] else CrisisAlert.objects.none()
     return Response({
         'student': StudentProfileSerializer(student).data if student else None,
         'role': role,
@@ -342,7 +374,7 @@ def module_center(request):
         'records': AssessmentRecordSerializer(record_queryset[:12], many=True).data,
         'appointments': AppointmentSerializer(appointment_queryset[:12], many=True).data,
         'counselors': CounselorSerializer(Counselor.objects.filter(is_active=True), many=True).data,
-        'alerts': CrisisAlertSerializer(CrisisAlert.objects.filter(handled=False)[:6], many=True).data,
+        'alerts': CrisisAlertSerializer(alert_queryset[:6], many=True).data,
     })
 
 
@@ -437,9 +469,8 @@ def create_appointment(request):
 @api_view(['POST'])
 @authentication_classes([CsrfExemptSessionAuthentication])
 def publish_treehole(request):
-    denied = require_write_role(request)
-    if denied:
-        return denied
+    if user_role(request.user) not in [AccountProfile.ROLE_STUDENT, AccountProfile.ROLE_ADMIN]:
+        return Response({'detail': '只有学生和管理员可以发布匿名树洞。'}, status=status.HTTP_403_FORBIDDEN)
     student = get_request_student(request)
     content = request.data.get('content') or ''
     if not content.strip():
@@ -460,9 +491,9 @@ def publish_treehole(request):
 @api_view(['POST'])
 @authentication_classes([CsrfExemptSessionAuthentication])
 def reply_treehole(request, post_id):
-    denied = require_write_role(request)
-    if denied:
-        return denied
+    role = user_role(request.user)
+    if role not in [AccountProfile.ROLE_STUDENT, AccountProfile.ROLE_TEACHER, AccountProfile.ROLE_ADMIN]:
+        return Response({'detail': '只有学生、心理教师和管理员可以回复匿名树洞。'}, status=status.HTTP_403_FORBIDDEN)
     post = TreeHolePost.objects.filter(id=post_id).first()
     content = request.data.get('content') or ''
     if not post or not content.strip():
@@ -470,9 +501,9 @@ def reply_treehole(request, post_id):
 
     reply = TreeHoleReply.objects.create(
         post=post,
-        responder_name=request.data.get('responder_name') or '同伴支持者',
+        responder_name=request.data.get('responder_name') or ('心理教师' if role == AccountProfile.ROLE_TEACHER else '同伴支持者'),
         content=content,
-        is_counselor_reply=bool(request.data.get('is_counselor_reply', False)),
+        is_counselor_reply=role == AccountProfile.ROLE_TEACHER,
     )
     return Response(TreeHoleReplySerializer(reply).data, status=status.HTTP_201_CREATED)
 
@@ -495,6 +526,14 @@ def register_user(request):
     password = request.data.get('password') or ''
     confirm_password = request.data.get('confirm_password') or ''
     role = request.data.get('role') or '学生'
+    full_name = (request.data.get('name') or '').strip()
+    email = (request.data.get('email') or '').strip()
+    student_no = (request.data.get('student_no') or username).strip()
+    college = (request.data.get('college') or '').strip()
+    grade = (request.data.get('grade') or '').strip()
+    privacy_consent = bool(request.data.get('privacy_consent', False))
+    pressure_sources = normalize_list_value(request.data.get('pressure_sources'))
+    preferred_topics = normalize_list_value(request.data.get('preferred_topics'))
 
     if not username or not password:
         return Response({'detail': '请输入账号和密码。'}, status=status.HTTP_400_BAD_REQUEST)
@@ -502,9 +541,11 @@ def register_user(request):
         return Response({'detail': '两次输入的密码不一致。'}, status=status.HTTP_400_BAD_REQUEST)
     if User.objects.filter(username=username).exists():
         return Response({'detail': '该账号已存在，请直接登录。'}, status=status.HTTP_400_BAD_REQUEST)
+    if role == '学生' and StudentProfile.objects.filter(student_no=student_no).exists():
+        return Response({'detail': '该学号已存在，请检查后重新填写。'}, status=status.HTTP_400_BAD_REQUEST)
 
-    user = User.objects.create_user(username=username, password=password)
-    user.first_name = username
+    user = User.objects.create_user(username=username, password=password, email=email)
+    user.first_name = full_name or username
     if role == '管理员':
         user.is_staff = True
     user.save()
@@ -513,10 +554,12 @@ def register_user(request):
     if role == '学生':
         StudentProfile.objects.create(
             user=user,
-            student_no=username,
-            privacy_consent=True,
-            pressure_sources=[],
-            preferred_topics=[],
+            student_no=student_no,
+            college=college,
+            grade=grade,
+            privacy_consent=privacy_consent,
+            pressure_sources=pressure_sources,
+            preferred_topics=preferred_topics,
         )
 
     login(request, user)
