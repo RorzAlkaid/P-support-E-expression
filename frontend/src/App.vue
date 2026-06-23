@@ -15,12 +15,19 @@ const loading = ref(true)
 const dashboard = ref(null)
 const moodTrend = ref([])
 const pressureData = ref([])
+const insightData = ref(null)
+const insightLoading = ref(false)
+const insightMessage = ref('')
 const counselors = ref([])
 const articles = ref([])
 const trendChartRef = ref(null)
 const pressureChartRef = ref(null)
+const riskChartRef = ref(null)
+const appointmentChartRef = ref(null)
 let trendChart = null
 let pressureChart = null
+let riskChart = null
+let appointmentChart = null
 let chartResizeObserver = null
 let chartVisibilityObserver = null
 let chartRenderTimer = null
@@ -33,7 +40,11 @@ const authSubmitting = ref(false)
 const authMessage = ref('')
 const moduleData = ref(null)
 const moduleMessage = ref('')
+const selectedAlertDetail = ref(null)
+const alertDetailLoading = ref(false)
+const alertDetailMessage = ref('')
 const currentArticleId = ref(initialHashParts[0] === 'article' ? initialHashParts[1] : null)
+const currentAlertId = ref(initialHashParts[0] === 'alert-detail' ? initialHashParts[1] : null)
 const activeModule = ref('mood')
 const resourcePage = ref(1)
 const resourcePageSize = 24
@@ -59,6 +70,27 @@ const appointmentForm = ref({
   topic: '',
   confidential_note: '',
 })
+const teacherProfileForm = ref({
+  name: '',
+  title: '心理教师',
+  specialties: '',
+  qualifications: '',
+  available_slots: '',
+})
+const profileForm = ref({
+  name: '',
+  email: '',
+  college: '',
+  grade: '',
+  pressure_sources: '',
+  preferred_topics: '',
+  privacy_consent: false,
+  title: '',
+  specialties: '',
+  qualifications: '',
+  available_slots: '',
+})
+const profileMessage = ref('')
 const replyForms = ref({})
 const authForm = ref({
   username: '',
@@ -73,11 +105,15 @@ const authForm = ref({
   pressureSources: '',
   preferredTopics: '',
   privacyConsent: false,
+  teacherTitle: '',
+  teacherSpecialties: '',
+  teacherQualifications: '',
 })
 
 const pageTitles = {
   home: '首页',
   register: '账号注册',
+  profile: '个人资料',
   details: '平台详情',
   article: '文章详情',
   mood: '情绪打卡',
@@ -86,6 +122,8 @@ const pageTitles = {
   appointment: '咨询预约',
   resources: '心理资源',
   alerts: '预警管理',
+  insights: '数据洞察',
+  'alert-detail': '预警学生详情',
 }
 
 const moduleIntros = [
@@ -188,6 +226,7 @@ const currentRole = computed(() => currentUser.value?.role || 'guest')
 const canWrite = computed(() => ['student', 'admin'].includes(currentRole.value))
 const canManage = computed(() => currentRole.value === 'admin')
 const canViewAlerts = computed(() => ['teacher', 'admin'].includes(currentRole.value))
+const canViewInsights = computed(() => ['teacher', 'admin'].includes(currentRole.value))
 const canOperateAppointments = computed(() => ['teacher', 'admin'].includes(currentRole.value))
 const canPublishTreehole = computed(() => ['student', 'admin'].includes(currentRole.value))
 const canReplyTreehole = computed(() => ['student', 'teacher', 'admin'].includes(currentRole.value))
@@ -205,6 +244,7 @@ const visibleAppointments = computed(() => {
   if (['teacher', 'admin'].includes(currentRole.value)) return appointments
   return appointments.filter((item) => !['pending', 'cancelled'].includes(item.status))
 })
+const selectedStudentProfile = computed(() => selectedAlertDetail.value?.student || null)
 const readonlyReason = computed(() => {
   if (currentRole.value === 'guest') return '未登录用户只能浏览已经录入的数据，不能新增或修改。'
   if (currentRole.value === 'teacher') return '教师账号仅可查询学生数据和平台内容，不能新增或修改。'
@@ -227,11 +267,21 @@ function handleScroll() {
 }
 
 function navigate(page) {
-  if (page === 'alerts' && !canViewAlerts.value) {
+  if (['alerts', 'alert-detail'].includes(page) && !canViewAlerts.value) {
     currentPage.value = 'home'
     window.location.hash = '/home'
     window.scrollTo({ top: 0, behavior: 'smooth' })
     return
+  }
+  if (page === 'insights' && !canViewInsights.value) {
+    currentPage.value = 'home'
+    window.location.hash = '/home'
+    window.scrollTo({ top: 0, behavior: 'smooth' })
+    return
+  }
+  if (page !== 'alert-detail') {
+    currentAlertId.value = null
+    selectedAlertDetail.value = null
   }
   currentPage.value = page
   window.location.hash = `/${page}`
@@ -239,17 +289,37 @@ function navigate(page) {
   if (page !== 'home') {
     refreshModules()
   }
+  if (page === 'profile') {
+    loadUserProfile()
+  }
+  if (page === 'insights') {
+    loadInsights()
+  }
 }
 
-function openArticle(article) {
+async function openArticle(article) {
   currentArticleId.value = article.id
   currentPage.value = 'article'
   window.location.hash = `/article/${article.id}`
   window.scrollTo({ top: 0, behavior: 'smooth' })
+  if (currentRole.value === 'student') {
+    try {
+      await axios.post(`/api/articles/${article.id}/view-log/`)
+    } catch (error) {
+      console.error('资源浏览记录保存失败', error)
+    }
+  }
 }
 
 function scrollToModules() {
   document.querySelector('#modules')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+}
+
+async function navigateHomeSection(sectionId = 'home') {
+  currentPage.value = 'home'
+  window.location.hash = '/home'
+  await nextTick()
+  document.querySelector(`#${sectionId}`)?.scrollIntoView({ behavior: 'smooth', block: sectionId === 'home' ? 'start' : 'center' })
 }
 
 function startExperience() {
@@ -277,6 +347,7 @@ async function loadBackendData() {
     counselors.value = counselorsRes.data
     articles.value = articlesRes.data.results ?? articlesRes.data
     moduleData.value = moduleRes.data
+    syncTeacherProfileForm(moduleRes.data.teacher_counselor)
     const firstScale = moduleRes.data.scales?.[0]
     const firstCounselor = moduleRes.data.counselors?.[0]
     if (firstScale && !assessmentForm.value.scale) {
@@ -304,6 +375,10 @@ async function refreshModules() {
     axios.get('/api/pressure-distribution/'),
   ])
   moduleData.value = moduleRes.data
+  syncTeacherProfileForm(moduleRes.data.teacher_counselor)
+  if (currentPage.value !== 'alert-detail' && selectedAlertDetail.value && !moduleRes.data.alerts?.some((item) => item.id === selectedAlertDetail.value.alert?.id)) {
+    selectedAlertDetail.value = null
+  }
   dashboard.value = dashboardRes.data
   moodTrend.value = trendRes.data
   pressureData.value = pressureRes.data
@@ -315,6 +390,18 @@ async function refreshModules() {
 async function loadCurrentUser() {
   const response = await axios.get('/api/auth/me/')
   currentUser.value = response.data.authenticated ? response.data.user : null
+  syncTeacherProfileForm(currentUser.value?.counselor_profile)
+  if (currentPage.value === 'alert-detail' && currentAlertId.value && canViewAlerts.value) {
+    await loadAlertStudentDetail(currentAlertId.value)
+  }
+  if (currentUser.value && currentPage.value === 'profile') {
+    await loadUserProfile()
+  }
+  if (currentPage.value === 'insights' && canViewInsights.value) {
+    await loadInsights()
+  } else if (currentPage.value === 'insights') {
+    navigate('home')
+  }
 }
 
 function chartReady(el) {
@@ -322,7 +409,7 @@ function chartReady(el) {
 }
 
 function scheduleRenderCharts({ retry = false } = {}) {
-  if (currentPage.value !== 'home') return
+  if (!['home', 'insights'].includes(currentPage.value)) return
   if (!retry) chartRenderAttempts = 0
   window.clearTimeout(chartRenderTimer)
   chartRenderTimer = window.setTimeout(async () => {
@@ -330,7 +417,7 @@ function scheduleRenderCharts({ retry = false } = {}) {
     requestAnimationFrame(() => {
       const rendered = renderCharts()
       resizeCharts()
-      if (!rendered && currentPage.value === 'home' && chartRenderAttempts < maxChartRenderAttempts) {
+      if (!rendered && ['home', 'insights'].includes(currentPage.value) && chartRenderAttempts < maxChartRenderAttempts) {
         chartRenderAttempts += 1
         scheduleRenderCharts({ retry: true })
       }
@@ -341,10 +428,12 @@ function scheduleRenderCharts({ retry = false } = {}) {
 function resizeCharts() {
   trendChart?.resize()
   pressureChart?.resize()
+  riskChart?.resize()
+  appointmentChart?.resize()
 }
 
 function setupChartObservers() {
-  const targets = [trendChartRef.value, pressureChartRef.value].filter(Boolean)
+  const targets = [trendChartRef.value, pressureChartRef.value, riskChartRef.value, appointmentChartRef.value].filter(Boolean)
   if (!targets.length) return
 
   if (!chartResizeObserver) {
@@ -426,11 +515,44 @@ function renderCharts() {
     renderedPressure = true
   }
 
+  if (chartReady(riskChartRef.value)) {
+    riskChart = riskChart || echarts.init(riskChartRef.value)
+    riskChart.setOption({
+      tooltip: { trigger: 'item' },
+      legend: { bottom: 0 },
+      series: [
+        {
+          type: 'pie',
+          radius: ['42%', '68%'],
+          data: insightData.value?.risk_distribution || [],
+          itemStyle: { borderColor: '#fff', borderWidth: 2 },
+        },
+      ],
+    })
+  }
+
+  if (chartReady(appointmentChartRef.value)) {
+    appointmentChart = appointmentChart || echarts.init(appointmentChartRef.value)
+    appointmentChart.setOption({
+      tooltip: { trigger: 'axis' },
+      grid: { top: 18, right: 20, bottom: 32, left: 42 },
+      xAxis: { type: 'category', data: (insightData.value?.appointment_distribution || []).map((item) => item.name) },
+      yAxis: { type: 'value' },
+      series: [
+        {
+          type: 'bar',
+          data: (insightData.value?.appointment_distribution || []).map((item) => item.value),
+          itemStyle: { color: '#4c8f8a', borderRadius: [6, 6, 0, 0] },
+        },
+      ],
+    })
+  }
+
   return renderedTrend && renderedPressure
 }
 
-watch([currentPage, moodTrend, pressureData, currentUser], async () => {
-  if (currentPage.value !== 'home' || loading.value) return
+watch([currentPage, moodTrend, pressureData, insightData, currentUser], async () => {
+  if (!['home', 'insights'].includes(currentPage.value) || loading.value) return
   await nextTick()
   setupChartObservers()
   scheduleRenderCharts()
@@ -446,12 +568,19 @@ onMounted(() => {
   window.addEventListener('hashchange', () => {
     const parts = window.location.hash?.replace('#/', '').split('/') || ['home']
     const nextPage = parts[0] || 'home'
-    if (nextPage === 'alerts' && !canViewAlerts.value) {
+    if (['alerts', 'alert-detail'].includes(nextPage) && !canViewAlerts.value) {
       navigate('home')
       return
     }
     currentPage.value = nextPage
     currentArticleId.value = parts[0] === 'article' ? parts[1] : currentArticleId.value
+    currentAlertId.value = parts[0] === 'alert-detail' ? parts[1] : null
+    if (currentPage.value === 'alert-detail' && currentAlertId.value) {
+      loadAlertStudentDetail(currentAlertId.value)
+    }
+    if (currentPage.value === 'profile') {
+      loadUserProfile()
+    }
   })
 })
 
@@ -580,6 +709,9 @@ async function submitRegister() {
       pressure_sources: pressureSourceList(authForm.value.pressureSources),
       preferred_topics: pressureSourceList(authForm.value.preferredTopics),
       privacy_consent: authForm.value.privacyConsent,
+      teacher_title: authForm.value.teacherTitle,
+      teacher_specialties: pressureSourceList(authForm.value.teacherSpecialties),
+      teacher_qualifications: authForm.value.teacherQualifications,
     }
     const response = await axios.post('/api/auth/register/', payload)
     currentUser.value = response.data.user
@@ -603,6 +735,64 @@ function pressureSourceList(value) {
     .split(/[，,、\s]+/)
     .map((item) => item.trim())
     .filter(Boolean)
+}
+
+function syncTeacherProfileForm(profile) {
+  if (!profile) return
+  teacherProfileForm.value = {
+    name: profile.name || currentUser.value?.name || '',
+    title: profile.title || '心理教师',
+    specialties: (profile.specialties || []).join('，'),
+    qualifications: profile.qualifications || '',
+    available_slots: (profile.available_slots || []).join('，'),
+  }
+}
+
+function syncProfileForm(payload) {
+  if (!payload?.user) return
+  const student = payload.student || {}
+  const teacher = payload.teacher_counselor || payload.user.counselor_profile || {}
+  profileForm.value = {
+    name: payload.user.name || '',
+    email: payload.user.email || '',
+    college: student.college || '',
+    grade: student.grade || '',
+    pressure_sources: (student.pressure_sources || []).join('，'),
+    preferred_topics: (student.preferred_topics || []).join('，'),
+    privacy_consent: Boolean(student.privacy_consent),
+    title: teacher.title || '心理教师',
+    specialties: (teacher.specialties || []).join('，'),
+    qualifications: teacher.qualifications || '',
+    available_slots: (teacher.available_slots || []).join('，'),
+  }
+}
+
+async function loadUserProfile() {
+  if (!currentUser.value) return
+  const response = await axios.get('/api/auth/profile/')
+  syncProfileForm(response.data)
+}
+
+async function submitUserProfile() {
+  profileMessage.value = ''
+  const response = await axios.patch('/api/auth/profile/', {
+    name: profileForm.value.name,
+    email: profileForm.value.email,
+    college: profileForm.value.college,
+    grade: profileForm.value.grade,
+    pressure_sources: pressureSourceList(profileForm.value.pressure_sources),
+    preferred_topics: pressureSourceList(profileForm.value.preferred_topics),
+    privacy_consent: profileForm.value.privacy_consent,
+    title: profileForm.value.title,
+    specialties: pressureSourceList(profileForm.value.specialties),
+    qualifications: profileForm.value.qualifications,
+    available_slots: pressureSourceList(profileForm.value.available_slots),
+  })
+  currentUser.value = response.data.user
+  syncProfileForm(response.data)
+  syncTeacherProfileForm(response.data.teacher_counselor)
+  profileMessage.value = '个人资料已保存。'
+  await refreshModules()
 }
 
 async function submitMood() {
@@ -659,6 +849,20 @@ async function submitAppointment() {
   appointmentForm.value.topic = ''
   appointmentForm.value.confidential_note = ''
   moduleMessage.value = '预约已提交，等待心理老师确认。'
+  await refreshModules()
+}
+
+async function submitTeacherProfile() {
+  if (currentRole.value !== 'teacher') return
+  const response = await axios.patch('/api/auth/teacher-profile/', {
+    name: teacherProfileForm.value.name,
+    title: teacherProfileForm.value.title,
+    specialties: pressureSourceList(teacherProfileForm.value.specialties),
+    qualifications: teacherProfileForm.value.qualifications,
+    available_slots: pressureSourceList(teacherProfileForm.value.available_slots),
+  })
+  syncTeacherProfileForm(response.data)
+  moduleMessage.value = '教师个人资料已保存，学生预约列表会同步更新。'
   await refreshModules()
 }
 
@@ -732,9 +936,89 @@ function changeResourcePage(page) {
   window.scrollTo({ top: 0, behavior: 'smooth' })
 }
 
+function formatList(value) {
+  if (Array.isArray(value)) return value.length ? value.join('、') : '暂无'
+  return value || '暂无'
+}
+
+async function loadInsights() {
+  if (!canViewInsights.value) return
+  insightLoading.value = true
+  insightMessage.value = ''
+  try {
+    const response = await axios.get('/api/insights/')
+    insightData.value = response.data
+    insightLoading.value = false
+    await nextTick()
+    setupChartObservers()
+    scheduleRenderCharts()
+  } catch (error) {
+    insightLoading.value = false
+    insightMessage.value = error.response?.data?.detail || '数据洞察加载失败，请确认当前账号是否为教师或管理员。'
+  }
+}
+
+async function downloadInsightExport(format) {
+  if (!canViewInsights.value) return
+  const response = await axios.get(`/api/insights/export/?format=${format}`, { responseType: 'blob' })
+  const blobUrl = window.URL.createObjectURL(response.data)
+  const link = document.createElement('a')
+  link.href = blobUrl
+  link.download = `数据洞察-${new Date().toISOString().slice(0, 10)}.${format === 'excel' ? 'xlsx' : 'csv'}`
+  document.body.appendChild(link)
+  link.click()
+  link.remove()
+  window.URL.revokeObjectURL(blobUrl)
+}
+
+function downloadChart(chart, filename) {
+  if (!chart) return
+  const link = document.createElement('a')
+  link.href = chart.getDataURL({ type: 'png', pixelRatio: 2, backgroundColor: '#ffffff' })
+  link.download = filename
+  document.body.appendChild(link)
+  link.click()
+  link.remove()
+}
+
+function downloadInsightCharts() {
+  downloadChart(trendChart, '情绪与睡眠趋势.png')
+  downloadChart(pressureChart, '压力来源雷达图.png')
+  downloadChart(riskChart, '风险等级分布.png')
+  downloadChart(appointmentChart, '预约状态分布.png')
+}
+
+function openAlertStudentDetail(alert) {
+  currentAlertId.value = alert.id
+  currentPage.value = 'alert-detail'
+  window.location.hash = `/alert-detail/${alert.id}`
+  window.scrollTo({ top: 0, behavior: 'smooth' })
+  loadAlertStudentDetail(alert.id)
+}
+
+async function loadAlertStudentDetail(alertOrId) {
+  if (!canViewAlerts.value) return
+  const alertId = typeof alertOrId === 'object' ? alertOrId.id : alertOrId
+  if (!alertId) return
+  currentAlertId.value = alertId
+  alertDetailLoading.value = true
+  alertDetailMessage.value = ''
+  try {
+    const response = await axios.get(`/api/alerts/${alertId}/student-detail/`)
+    selectedAlertDetail.value = response.data
+  } catch (error) {
+    alertDetailMessage.value = error.response?.data?.detail || '预警学生详情加载失败'
+  } finally {
+    alertDetailLoading.value = false
+  }
+}
+
 async function editAlert(alert) {
   if (!canManage.value) return
   await adminPatch(`/api/crisis-alerts/${alert.id}/`, { handled: !alert.handled })
+  if (selectedAlertDetail.value?.alert?.id === alert.id) {
+    await loadAlertStudentDetail(alert.id)
+  }
 }
 </script>
 
@@ -764,13 +1048,19 @@ async function editAlert(alert) {
         <a href="#/assessment" @click.prevent="navigate('assessment')">心理测评</a>
         <a href="#/appointment" @click.prevent="navigate('appointment')">咨询预约</a>
         <a href="#/resources" @click.prevent="navigate('resources')">心理资源</a>
+        <a v-if="canViewInsights" href="#/insights" @click.prevent="navigate('insights')">数据洞察</a>
         <a v-if="canViewAlerts" class="alert-nav-link" href="#/alerts" @click.prevent="navigate('alerts')">预警管理</a>
       </nav>
 
       <div class="auth-actions">
         <template v-if="currentUser">
-          <span class="user-chip">{{ currentUser.name }}</span>
-          <button class="text-button" type="button" @click="logoutAccount">退出</button>
+          <div class="user-menu">
+            <button class="user-chip" type="button" @click="navigate('profile')">{{ currentUser.name }}</button>
+            <div class="user-dropdown">
+              <button type="button" @click="navigate('profile')">个人资料</button>
+              <button type="button" @click="logoutAccount">退出登录</button>
+            </div>
+          </div>
         </template>
         <template v-else>
           <button class="text-button" type="button" @click="openAuth('login')">登录</button>
@@ -871,7 +1161,7 @@ async function editAlert(alert) {
 
       <section id="insights" class="section insight-section scroll-follow follow-medium">
         <div class="section-heading align-left wide-heading">
-          <span class="eyebrow">心晴数据洞察</span>
+          <span class="eyebrow">数据洞察</span>
           <h2>把心理状态转化为可理解的趋势</h2>
           <p>下方数据来自平台后端，用于呈现情绪变化、压力来源、预警数量和资源更新情况。</p>
         </div>
@@ -908,6 +1198,7 @@ async function editAlert(alert) {
             </article>
           </div>
         </template>
+        <button v-if="canViewInsights" class="more-link" type="button" @click="navigate('insights')">&gt;&gt;&gt;进入数据洞察专题页</button>
       </section>
 
       <section id="support" class="section support-section scroll-follow follow-deep">
@@ -979,15 +1270,21 @@ async function editAlert(alert) {
         </div>
       </section>
 
-      <section v-if="!currentUser" id="contact" class="cta-section scroll-follow follow-deep">
+      <section id="contact" class="cta-section scroll-follow follow-deep">
         <div>
           <span class="eyebrow">开始使用</span>
           <h2>进入平台，建立属于校园的心理支持空间</h2>
           <p>前端页面完成后，可继续接入 Django 后端，实现用户、打卡、树洞、预约、测评与预警数据管理。</p>
         </div>
         <div class="cta-actions">
-          <button class="solid-button large" type="button" @click="openAuth('login')">登录平台</button>
-          <button class="outline-button large" type="button" @click="openAuth('register')">创建账号</button>
+          <template v-if="!currentUser">
+            <button class="solid-button large" type="button" @click="openAuth('login')">登录平台</button>
+            <button class="outline-button large" type="button" @click="openAuth('register')">创建账号</button>
+          </template>
+          <template v-else>
+            <button class="solid-button large" type="button" @click="scrollToModules">查看功能</button>
+            <button class="outline-button large" type="button" @click="navigate('profile')">个人资料</button>
+          </template>
         </div>
       </section>
     </main>
@@ -997,6 +1294,101 @@ async function editAlert(alert) {
         <button class="text-button" type="button" @click="navigate('home')">返回首页</button>
         <span class="eyebrow">{{ pageTitles[currentPage] }}</span>
         <h1>{{ pageTitles[currentPage] }}</h1>
+      </section>
+
+      <section v-if="currentPage === 'insights' && canViewInsights" class="insights-page module-panel page-panel">
+        <div class="insights-toolbar">
+          <div>
+            <span class="eyebrow">教师与管理员专用</span>
+            <h2>数据洞察专题页</h2>
+            <p>集中查看情绪、压力、测评风险和咨询预约数据，并导出给咨询师做深度分析。</p>
+          </div>
+          <div class="insight-actions">
+            <button type="button" @click="downloadInsightCharts">下载图表</button>
+            <button type="button" @click="downloadInsightExport('csv')">导出 CSV</button>
+            <button class="solid-button" type="button" @click="downloadInsightExport('excel')">导出 Excel</button>
+          </div>
+        </div>
+
+        <p v-if="insightLoading" class="module-message">正在加载数据洞察...</p>
+        <p v-if="insightMessage" class="module-message">{{ insightMessage }}</p>
+
+        <template v-if="insightData">
+          <div class="data-metrics insight-summary">
+            <article>
+              <span>学生档案</span>
+              <strong>{{ insightData.summary.students }}</strong>
+            </article>
+            <article>
+              <span>情绪记录</span>
+              <strong>{{ insightData.summary.mood_entries }}</strong>
+            </article>
+            <article>
+              <span>测评记录</span>
+              <strong>{{ insightData.summary.assessment_records }}</strong>
+            </article>
+            <article class="warning">
+              <span>未处理预警</span>
+              <strong>{{ insightData.summary.unhandled_alerts }}</strong>
+            </article>
+          </div>
+
+          <div class="chart-grid insight-chart-grid">
+            <article class="data-panel">
+              <div class="panel-head">
+                <h3>情绪与睡眠趋势</h3>
+                <button type="button" @click="downloadChart(trendChart, '情绪与睡眠趋势.png')">下载</button>
+              </div>
+              <div ref="trendChartRef" class="chart-box"></div>
+            </article>
+            <article class="data-panel">
+              <div class="panel-head">
+                <h3>压力来源雷达图</h3>
+                <button type="button" @click="downloadChart(pressureChart, '压力来源雷达图.png')">下载</button>
+              </div>
+              <div ref="pressureChartRef" class="chart-box"></div>
+            </article>
+            <article class="data-panel">
+              <div class="panel-head">
+                <h3>风险等级分布</h3>
+                <button type="button" @click="downloadChart(riskChart, '风险等级分布.png')">下载</button>
+              </div>
+              <div ref="riskChartRef" class="chart-box"></div>
+            </article>
+            <article class="data-panel">
+              <div class="panel-head">
+                <h3>预约状态分布</h3>
+                <button type="button" @click="downloadChart(appointmentChart, '预约状态分布.png')">下载</button>
+              </div>
+              <div ref="appointmentChartRef" class="chart-box"></div>
+            </article>
+          </div>
+
+          <div class="insight-table-grid">
+            <section>
+              <h3>近期情绪记录</h3>
+              <table>
+                <thead><tr><th>学生</th><th>情绪</th><th>强度</th><th>睡眠</th><th>压力来源</th><th>时间</th></tr></thead>
+                <tbody>
+                  <tr v-for="row in insightData.mood_rows.slice(0, 8)" :key="`mood-${row.student}-${row.created_at}`">
+                    <td>{{ row.student }}</td><td>{{ row.mood }}</td><td>{{ row.intensity }}</td><td>{{ row.sleep_quality }}</td><td>{{ row.pressure_sources || '暂无' }}</td><td>{{ row.created_at }}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </section>
+            <section>
+              <h3>近期测评记录</h3>
+              <table>
+                <thead><tr><th>学生</th><th>量表</th><th>分数</th><th>风险</th><th>时间</th></tr></thead>
+                <tbody>
+                  <tr v-for="row in insightData.assessment_rows.slice(0, 8)" :key="`assessment-${row.student}-${row.created_at}`">
+                    <td>{{ row.student }}</td><td>{{ row.scale }}</td><td>{{ row.score }}</td><td>{{ row.risk_level }}</td><td>{{ row.created_at }}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </section>
+          </div>
+        </template>
       </section>
 
       <section v-if="currentPage === 'register'" class="register-page module-panel page-panel">
@@ -1032,6 +1424,12 @@ async function editAlert(alert) {
                 <span>同意平台在校内心理支持场景下保存并使用以上信息</span>
               </label>
             </template>
+
+            <template v-if="authForm.role === '心理老师'">
+              <label>教师职称<input v-model.trim="authForm.teacherTitle" placeholder="例如：国家二级心理咨询师" /></label>
+              <label>咨询标签<input v-model="authForm.teacherSpecialties" placeholder="用逗号分隔，如情绪调节、压力管理、睡眠" /></label>
+              <label class="full">资质说明<textarea v-model="authForm.teacherQualifications" placeholder="填写咨询资质、擅长方向或值班说明"></textarea></label>
+            </template>
           </div>
 
           <p v-if="authMessage" class="auth-message">{{ authMessage }}</p>
@@ -1040,6 +1438,44 @@ async function editAlert(alert) {
               {{ authSubmitting ? '提交中...' : '完成注册' }}
             </button>
             <button class="text-button" type="button" @click="openAuth('login')">已有账号，去登录</button>
+          </div>
+        </form>
+      </section>
+
+      <section v-if="currentPage === 'profile'" class="profile-page module-panel page-panel">
+        <div class="register-heading">
+          <span class="eyebrow">账号设置</span>
+          <h2>编辑个人资料</h2>
+          <p>这些信息会用于平台展示、咨询预约和后续支持记录。</p>
+        </div>
+
+        <form v-if="currentUser" class="register-form" @submit.prevent="submitUserProfile">
+          <div class="registration-grid">
+            <label>姓名<input v-model.trim="profileForm.name" required /></label>
+            <label>邮箱<input v-model.trim="profileForm.email" type="email" /></label>
+
+            <template v-if="currentRole === 'student'">
+              <label>学院<input v-model.trim="profileForm.college" /></label>
+              <label>年级<input v-model.trim="profileForm.grade" /></label>
+              <label>压力来源<input v-model="profileForm.pressure_sources" placeholder="用逗号分隔，如学业、人际、睡眠" /></label>
+              <label class="full">关注主题<input v-model="profileForm.preferred_topics" placeholder="用逗号分隔，如焦虑调节、时间管理、咨询预约" /></label>
+              <label class="consent full">
+                <input v-model="profileForm.privacy_consent" type="checkbox" />
+                <span>同意平台在校内心理支持场景下保存并使用以上信息</span>
+              </label>
+            </template>
+
+            <template v-if="currentRole === 'teacher'">
+              <label>职称<input v-model.trim="profileForm.title" placeholder="例如：国家二级心理咨询师" /></label>
+              <label>咨询标签<input v-model="profileForm.specialties" placeholder="用逗号分隔，如情绪调节、压力管理、睡眠" /></label>
+              <label class="full">资质说明<textarea v-model="profileForm.qualifications"></textarea></label>
+              <label class="full">可预约时段<textarea v-model="profileForm.available_slots" placeholder="用逗号分隔，如周一下午、周三上午"></textarea></label>
+            </template>
+          </div>
+
+          <p v-if="profileMessage" class="auth-message">{{ profileMessage }}</p>
+          <div class="register-actions">
+            <button class="solid-button large" type="submit">保存资料</button>
           </div>
         </form>
       </section>
@@ -1172,6 +1608,19 @@ async function editAlert(alert) {
 
       <section v-if="currentPage === 'appointment'" class="module-panel page-panel">
         <h3>咨询预约</h3>
+        <div v-if="currentRole === 'teacher'" class="appointment-board teacher-profile-board">
+          <h4>教师个人资料</h4>
+          <form class="module-form" @submit.prevent="submitTeacherProfile">
+            <label>姓名<input v-model.trim="teacherProfileForm.name" /></label>
+            <label>职称<input v-model.trim="teacherProfileForm.title" placeholder="例如：国家二级心理咨询师" /></label>
+            <label class="full">咨询标签<input v-model="teacherProfileForm.specialties" placeholder="用逗号分隔，如情绪调节、压力管理、睡眠" /></label>
+            <label class="full">资质说明<textarea v-model="teacherProfileForm.qualifications"></textarea></label>
+            <label class="full">可预约时段<textarea v-model="teacherProfileForm.available_slots" placeholder="用逗号分隔，如周一下午、周三上午"></textarea></label>
+            <button class="solid-button large" type="submit">保存个人资料</button>
+          </form>
+          <p v-if="moduleMessage" class="module-message">{{ moduleMessage }}</p>
+        </div>
+
         <div class="appointment-board appointment-info-board">
           <h4>同学预约信息</h4>
           <div v-if="visibleAppointments.length" class="appointment-strip">
@@ -1263,6 +1712,10 @@ async function editAlert(alert) {
           <article v-for="alert in moduleData?.alerts" :key="alert.id" class="alert-card">
             <strong>{{ alert.student_name }} · {{ alert.level }}</strong>
             <p>{{ alert.trigger }}</p>
+            <span>{{ formatDateTime(alert.created_at) }} · {{ alert.handled ? '已处理' : '待跟进' }}</span>
+            <div class="admin-actions">
+              <button type="button" @click="openAlertStudentDetail(alert)">查看学生详情</button>
+            </div>
             <div v-if="canManage" class="admin-actions">
               <button type="button" @click="editAlert(alert)">{{ alert.handled ? '标记未处理' : '标记已处理' }}</button>
               <button class="danger-button" type="button" @click="adminDelete(`/api/crisis-alerts/${alert.id}/`)">删除</button>
@@ -1270,6 +1723,115 @@ async function editAlert(alert) {
           </article>
         </div>
         <a v-if="canManage" class="outline-link admin-link" href="http://127.0.0.1:8000/admin/" target="_blank" rel="noreferrer">进入 Django 后台管理</a>
+      </section>
+
+      <section v-if="currentPage === 'alert-detail' && canViewAlerts" class="module-panel page-panel alert-detail-page">
+        <div class="alert-detail-header">
+          <div>
+            <span class="eyebrow">预警学生详情</span>
+            <h3>{{ selectedStudentProfile?.name || selectedStudentProfile?.username || '正在加载学生信息' }}</h3>
+            <p v-if="selectedStudentProfile">{{ selectedStudentProfile.college || '未填写学院' }} · {{ selectedStudentProfile.grade || '未填写年级' }} · 学号 {{ selectedStudentProfile.student_no }}</p>
+          </div>
+          <div class="admin-actions">
+            <button type="button" @click="navigate('alerts')">返回预警列表</button>
+            <button type="button" :disabled="alertDetailLoading" @click="loadAlertStudentDetail(currentAlertId)">刷新详情</button>
+          </div>
+        </div>
+
+        <p v-if="alertDetailLoading" class="module-message">正在加载预警学生详情...</p>
+        <p v-if="alertDetailMessage" class="module-message">{{ alertDetailMessage }}</p>
+
+        <template v-if="selectedAlertDetail">
+          <div class="alert-summary-strip">
+            <article>
+              <span>预警等级</span>
+              <strong>{{ selectedAlertDetail.alert.level }}</strong>
+            </article>
+            <article>
+              <span>触发原因</span>
+              <strong>{{ selectedAlertDetail.alert.trigger }}</strong>
+            </article>
+            <article>
+              <span>处理状态</span>
+              <strong>{{ selectedAlertDetail.alert.handled ? '已处理' : '待跟进' }}</strong>
+            </article>
+          </div>
+
+          <div class="student-profile-grid">
+            <article>
+              <span>隐私授权</span>
+              <strong>{{ selectedStudentProfile?.privacy_consent ? '已授权' : '未授权' }}</strong>
+            </article>
+            <article>
+              <span>压力来源</span>
+              <strong>{{ formatList(selectedStudentProfile?.pressure_sources) }}</strong>
+            </article>
+            <article>
+              <span>关注主题</span>
+              <strong>{{ formatList(selectedStudentProfile?.preferred_topics) }}</strong>
+            </article>
+          </div>
+
+          <div class="alert-detail-grid">
+            <section>
+              <h5>情绪打卡</h5>
+              <article v-for="item in selectedAlertDetail.moods" :key="`mood-${item.id}`">
+                <strong>{{ item.mood }} · 强度 {{ item.intensity }}/10 · 睡眠 {{ item.sleep_quality }}/10</strong>
+                <span>{{ formatDateTime(item.created_at) }} · {{ formatList(item.pressure_sources) }}</span>
+                <p>{{ item.note || '暂无日记内容' }}</p>
+              </article>
+              <p v-if="!selectedAlertDetail.moods?.length" class="empty-state">暂无情绪打卡记录。</p>
+            </section>
+
+            <section>
+              <h5>发布的树洞</h5>
+              <article v-for="post in selectedAlertDetail.treeholes" :key="`treehole-${post.id}`">
+                <strong>{{ post.category }} · {{ post.mood_tag || '未标记' }} · {{ post.risk_flag ? '有风险标记' : '无风险标记' }}</strong>
+                <span>{{ formatDateTime(post.created_at) }}</span>
+                <p>{{ post.content }}</p>
+              </article>
+              <p v-if="!selectedAlertDetail.treeholes?.length" class="empty-state">暂无树洞记录。</p>
+            </section>
+
+            <section>
+              <h5>心理测评</h5>
+              <article v-for="record in selectedAlertDetail.records" :key="`record-${record.id}`">
+                <strong>{{ record.scale_name }} · {{ record.score }} 分 · {{ record.risk_level }}</strong>
+                <span>{{ formatDateTime(record.created_at) }}</span>
+                <p>{{ record.suggestion || '暂无建议' }}</p>
+              </article>
+              <p v-if="!selectedAlertDetail.records?.length" class="empty-state">暂无测评记录。</p>
+            </section>
+
+            <section>
+              <h5>咨询预约</h5>
+              <article v-for="item in selectedAlertDetail.appointments" :key="`appointment-${item.id}`">
+                <strong>{{ item.counselor_name }} · {{ statusLabel(item.status) }}</strong>
+                <span>{{ formatDateTime(item.scheduled_at) }}</span>
+                <p>{{ item.topic }}{{ item.confidential_note ? `：${item.confidential_note}` : '' }}</p>
+              </article>
+              <p v-if="!selectedAlertDetail.appointments?.length" class="empty-state">暂无咨询预约。</p>
+            </section>
+
+            <section>
+              <h5>心理资源浏览记录</h5>
+              <article v-for="log in selectedAlertDetail.resource_views" :key="`resource-view-${log.id}`">
+                <strong>{{ log.article_title }}</strong>
+                <span>{{ log.article_category || '未分类' }} · {{ log.article_source || '未知来源' }} · {{ formatDateTime(log.created_at) }}</span>
+              </article>
+              <p v-if="!selectedAlertDetail.resource_views?.length" class="empty-state">暂无资源浏览记录。</p>
+            </section>
+
+            <section>
+              <h5>历史预警</h5>
+              <article v-for="item in selectedAlertDetail.alerts" :key="`alert-history-${item.id}`">
+                <strong>{{ item.level }} · {{ item.handled ? '已处理' : '待跟进' }}</strong>
+                <span>{{ formatDateTime(item.created_at) }}</span>
+                <p>{{ item.trigger }}</p>
+              </article>
+            </section>
+          </div>
+        </template>
       </section>
     </main>
 
@@ -1285,11 +1847,11 @@ async function editAlert(alert) {
 
         <div class="footer-content">
           <nav class="footer-links" aria-label="底部链接">
-            <a href="#home">首页</a>
-            <a href="#features">功能服务</a>
-            <a href="#scenes">使用场景</a>
-            <a href="#contact">联系我们</a>
-            <a href="#contact">加入我们</a>
+            <a href="#/home" @click.prevent="navigateHomeSection('home')">首页</a>
+            <a href="#/home" @click.prevent="navigateHomeSection('features')">功能服务</a>
+            <a href="#/home" @click.prevent="navigateHomeSection('scenes')">使用场景</a>
+            <a href="#/home" @click.prevent="navigateHomeSection('contact')">联系我们</a>
+            <a href="#/register" @click.prevent="openAuth('register')">加入我们</a>
           </nav>
 
           <p>
@@ -1326,7 +1888,7 @@ async function editAlert(alert) {
         <h2>欢迎回来</h2>
         <p>登录后进入学生端或教师端。</p>
         <form class="auth-form" @submit.prevent="submitAuth">
-          <input v-model.trim="authForm.username" placeholder="学号 / 工号 / 邮箱" required />
+          <input v-model.trim="authForm.username" placeholder="账号" required />
           <input v-model="authForm.password" placeholder="密码" type="password" required />
           <p v-if="authMessage" class="auth-message">{{ authMessage }}</p>
           <button class="solid-button large" type="submit" :disabled="authSubmitting">

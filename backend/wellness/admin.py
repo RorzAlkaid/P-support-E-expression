@@ -11,6 +11,7 @@ from .models import (
     ExternalResourceSource,
     MoodEntry,
     ResourceFetchLog,
+    ResourceViewLog,
     StudentProfile,
     TreeHolePost,
     TreeHoleReply,
@@ -61,6 +62,13 @@ class ResourceFetchLogAdmin(admin.ModelAdmin):
     list_display = ('source', 'status', 'articles_created', 'articles_updated', 'created_at')
     list_filter = ('status', 'source')
     search_fields = ('source__name', 'message')
+
+
+@admin.register(ResourceViewLog)
+class ResourceViewLogAdmin(admin.ModelAdmin):
+    list_display = ('student', 'article_title', 'article_category', 'article_source', 'created_at')
+    list_filter = ('article_category', 'article_source')
+    search_fields = ('student__student_no', 'student__user__username', 'article_title', 'article_source')
 
 
 @admin.register(AssessmentScale)

@@ -10,6 +10,7 @@ from .models import (
     ExternalResourceSource,
     MoodEntry,
     ResourceFetchLog,
+    ResourceViewLog,
     StudentProfile,
     TreeHolePost,
     TreeHoleReply,
@@ -38,11 +39,13 @@ class StudentProfileSerializer(serializers.ModelSerializer):
 
 class CounselorSerializer(serializers.ModelSerializer):
     match_score = serializers.IntegerField(read_only=True)
+    username = serializers.CharField(source='user.username', read_only=True)
 
     class Meta:
         model = Counselor
         fields = [
             'id',
+            'username',
             'name',
             'title',
             'specialties',
@@ -87,6 +90,23 @@ class ResourceFetchLogSerializer(serializers.ModelSerializer):
     class Meta:
         model = ResourceFetchLog
         fields = ['id', 'source', 'source_name', 'status', 'message', 'articles_created', 'articles_updated', 'created_at']
+
+
+class ResourceViewLogSerializer(serializers.ModelSerializer):
+    student_name = serializers.CharField(source='student.user.get_full_name', read_only=True)
+
+    class Meta:
+        model = ResourceViewLog
+        fields = [
+            'id',
+            'student',
+            'student_name',
+            'article',
+            'article_title',
+            'article_source',
+            'article_category',
+            'created_at',
+        ]
 
 
 class AssessmentScaleSerializer(serializers.ModelSerializer):

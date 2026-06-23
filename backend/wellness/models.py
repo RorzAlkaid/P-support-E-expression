@@ -49,6 +49,7 @@ class StudentProfile(TimeStampedModel):
 
 
 class Counselor(TimeStampedModel):
+    user = models.OneToOneField(User, on_delete=models.SET_NULL, null=True, blank=True, related_name='counselor_profile', verbose_name='关联教师账号')
     name = models.CharField(max_length=40, verbose_name='姓名')
     title = models.CharField(max_length=80, verbose_name='职称')
     specialties = models.JSONField(default=list, verbose_name='擅长领域')
@@ -128,6 +129,22 @@ class ResourceFetchLog(TimeStampedModel):
 
     def __str__(self):
         return f'{self.source.name} - {self.get_status_display()}'
+
+
+class ResourceViewLog(TimeStampedModel):
+    student = models.ForeignKey(StudentProfile, on_delete=models.CASCADE, related_name='resource_view_logs', verbose_name='student')
+    article = models.ForeignKey(Article, on_delete=models.SET_NULL, null=True, blank=True, related_name='view_logs', verbose_name='article')
+    article_title = models.CharField(max_length=120, verbose_name='article title')
+    article_source = models.CharField(max_length=120, blank=True, verbose_name='article source')
+    article_category = models.CharField(max_length=40, blank=True, verbose_name='article category')
+
+    class Meta:
+        verbose_name = 'resource view log'
+        verbose_name_plural = 'resource view logs'
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f'{self.student} viewed {self.article_title}'
 
 
 class AssessmentScale(TimeStampedModel):

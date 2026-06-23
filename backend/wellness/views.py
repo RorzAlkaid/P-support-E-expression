@@ -1,9 +1,14 @@
+import csv
+import io
+import zipfile
 from collections import Counter
 from datetime import timedelta
+from html import escape
 
 from django.contrib.auth import authenticate, login, logout
 from django.contrib.auth.models import User
 from django.db.models import Avg, Count
+from django.http import HttpResponse
 from django.utils import timezone
 from rest_framework import status, viewsets
 from rest_framework.authentication import SessionAuthentication
@@ -21,6 +26,7 @@ from .models import (
     ExternalResourceSource,
     MoodEntry,
     ResourceFetchLog,
+    ResourceViewLog,
     StudentProfile,
     TreeHolePost,
     TreeHoleReply,
@@ -35,6 +41,7 @@ from .serializers import (
     ExternalResourceSourceSerializer,
     MoodEntrySerializer,
     ResourceFetchLogSerializer,
+    ResourceViewLogSerializer,
     StudentProfileSerializer,
     TreeHolePostSerializer,
     TreeHoleReplySerializer,
@@ -76,7 +83,36 @@ def require_write_role(request, allow_admin=True):
     return None
 
 
+def can_view_alert_details(user):
+    return user_role(user) in [AccountProfile.ROLE_TEACHER, AccountProfile.ROLE_ADMIN]
+
+
+def can_view_insights(user):
+    return user_role(user) in [AccountProfile.ROLE_TEACHER, AccountProfile.ROLE_ADMIN]
+
+
+def ensure_teacher_counselor(user, **defaults):
+    if user_role(user) != AccountProfile.ROLE_TEACHER:
+        return None
+    counselor_defaults = {
+        'name': user.get_full_name() or user.username,
+        'title': defaults.get('title') or '心理教师',
+        'specialties': defaults.get('specialties') or [],
+        'qualifications': defaults.get('qualifications') or '',
+        'available_slots': defaults.get('available_slots') or [],
+        'avatar_color': defaults.get('avatar_color') or '#d85d73',
+        'source': '教师个人资料',
+        'is_active': True,
+    }
+    counselor, created = Counselor.objects.get_or_create(user=user, defaults=counselor_defaults)
+    if not created and not counselor.is_active:
+        counselor.is_active = True
+        counselor.save(update_fields=['is_active', 'updated_at'])
+    return counselor
+
+
 def serialize_user(user):
+    counselor = ensure_teacher_counselor(user)
     return {
         'id': user.id,
         'username': user.username,
@@ -84,6 +120,7 @@ def serialize_user(user):
         'email': user.email,
         'is_staff': user.is_staff,
         'role': user_role(user),
+        'counselor_profile': CounselorSerializer(counselor).data if counselor else None,
     }
 
 
@@ -327,6 +364,197 @@ def pressure_distribution(request):
     ])
 
 
+def risk_level_label(value):
+    return {
+        AssessmentRecord.RISK_LOW: '低',
+        AssessmentRecord.RISK_MEDIUM: '中',
+        AssessmentRecord.RISK_HIGH: '高',
+    }.get(value, value or '未知')
+
+
+def appointment_status_label(value):
+    return {
+        Appointment.STATUS_PENDING: '待确认',
+        Appointment.STATUS_CONFIRMED: '已确认',
+        Appointment.STATUS_FINISHED: '已完成',
+        Appointment.STATUS_CANCELLED: '已取消',
+    }.get(value, value or '未知')
+
+
+def build_insight_payload():
+    mood_rows = MoodEntry.objects.select_related('student__user').order_by('-created_at')[:200]
+    assessment_rows = AssessmentRecord.objects.select_related('student__user', 'scale').order_by('-created_at')[:200]
+    appointment_rows = Appointment.objects.select_related('student__user', 'counselor').order_by('-scheduled_at')[:200]
+    alert_rows = CrisisAlert.objects.select_related('student__user').order_by('handled', '-created_at')[:120]
+
+    risk_counter = Counter(AssessmentRecord.objects.values_list('risk_level', flat=True))
+    appointment_counter = Counter(Appointment.objects.values_list('status', flat=True))
+    mood_average = MoodEntry.objects.aggregate(
+        intensity=Avg('intensity'),
+        sleep_quality=Avg('sleep_quality'),
+    )
+
+    pressure_counter = Counter()
+    for entry in MoodEntry.objects.all():
+        pressure_counter.update(entry.pressure_sources or [])
+    for profile in StudentProfile.objects.all():
+        pressure_counter.update(profile.pressure_sources or [])
+
+    return {
+        'summary': {
+            'students': StudentProfile.objects.count(),
+            'mood_entries': MoodEntry.objects.count(),
+            'assessment_records': AssessmentRecord.objects.count(),
+            'appointments': Appointment.objects.count(),
+            'unhandled_alerts': CrisisAlert.objects.filter(handled=False).count(),
+            'avg_mood': round(mood_average['intensity'] or 0, 1),
+            'avg_sleep': round(mood_average['sleep_quality'] or 0, 1),
+        },
+        'pressure_distribution': [
+            {'name': name, 'value': value}
+            for name, value in pressure_counter.most_common(10)
+        ],
+        'risk_distribution': [
+            {'name': risk_level_label(key), 'value': value}
+            for key, value in risk_counter.items()
+        ],
+        'appointment_distribution': [
+            {'name': appointment_status_label(key), 'value': value}
+            for key, value in appointment_counter.items()
+        ],
+        'mood_rows': [
+            {
+                'student': item.student.user.get_full_name() or item.student.user.username,
+                'mood': item.mood,
+                'intensity': item.intensity,
+                'sleep_quality': item.sleep_quality,
+                'pressure_sources': '、'.join(item.pressure_sources or []),
+                'note': item.note,
+                'created_at': timezone.localtime(item.created_at).strftime('%Y-%m-%d %H:%M'),
+            }
+            for item in mood_rows
+        ],
+        'assessment_rows': [
+            {
+                'student': item.student.user.get_full_name() or item.student.user.username,
+                'scale': item.scale.name,
+                'score': item.score,
+                'risk_level': risk_level_label(item.risk_level),
+                'suggestion': item.suggestion,
+                'created_at': timezone.localtime(item.created_at).strftime('%Y-%m-%d %H:%M'),
+            }
+            for item in assessment_rows
+        ],
+        'appointment_rows': [
+            {
+                'student': item.student.user.get_full_name() or item.student.user.username,
+                'counselor': item.counselor.name,
+                'topic': item.topic,
+                'status': appointment_status_label(item.status),
+                'scheduled_at': timezone.localtime(item.scheduled_at).strftime('%Y-%m-%d %H:%M'),
+                'confidential_note': item.confidential_note,
+            }
+            for item in appointment_rows
+        ],
+        'alert_rows': [
+            {
+                'student': item.student.user.get_full_name() or item.student.user.username,
+                'level': item.level,
+                'trigger': item.trigger,
+                'handled': '已处理' if item.handled else '待跟进',
+                'handler_note': item.handler_note,
+                'created_at': timezone.localtime(item.created_at).strftime('%Y-%m-%d %H:%M'),
+            }
+            for item in alert_rows
+        ],
+    }
+
+
+def insight_export_rows(payload):
+    rows = []
+    sections = [
+        ('情绪打卡', ['student', 'mood', 'intensity', 'sleep_quality', 'pressure_sources', 'note', 'created_at'], payload['mood_rows']),
+        ('心理测评', ['student', 'scale', 'score', 'risk_level', 'suggestion', 'created_at'], payload['assessment_rows']),
+        ('咨询预约', ['student', 'counselor', 'topic', 'status', 'scheduled_at', 'confidential_note'], payload['appointment_rows']),
+        ('危机预警', ['student', 'level', 'trigger', 'handled', 'handler_note', 'created_at'], payload['alert_rows']),
+    ]
+    for section, fields, items in sections:
+        for item in items:
+            row = {'section': section}
+            row.update({field: item.get(field, '') for field in fields})
+            rows.append(row)
+    return rows
+
+
+def make_xlsx_response(rows, filename):
+    headers = ['section', 'student', 'mood', 'intensity', 'sleep_quality', 'pressure_sources', 'note', 'scale', 'score', 'risk_level', 'suggestion', 'counselor', 'topic', 'status', 'scheduled_at', 'confidential_note', 'level', 'trigger', 'handled', 'handler_note', 'created_at']
+
+    def cell_ref(column_index, row_index):
+        name = ''
+        column_index += 1
+        while column_index:
+            column_index, remainder = divmod(column_index - 1, 26)
+            name = chr(65 + remainder) + name
+        return f'{name}{row_index}'
+
+    sheet_rows = [headers] + [[row.get(header, '') for header in headers] for row in rows]
+    xml_rows = []
+    for row_index, row in enumerate(sheet_rows, start=1):
+        cells = []
+        for column_index, value in enumerate(row):
+            cells.append(f'<c r="{cell_ref(column_index, row_index)}" t="inlineStr"><is><t>{escape(str(value))}</t></is></c>')
+        xml_rows.append(f'<row r="{row_index}">{"".join(cells)}</row>')
+
+    workbook = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="数据洞察" sheetId="1" r:id="rId1"/></sheets></workbook>'.encode('utf-8')
+    rels = b'<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>'
+    workbook_rels = b'<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/></Relationships>'
+    content_types = b'<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/></Types>'
+    worksheet = f'<?xml version="1.0" encoding="UTF-8" standalone="yes"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData>{"".join(xml_rows)}</sheetData></worksheet>'.encode('utf-8')
+
+    output = io.BytesIO()
+    with zipfile.ZipFile(output, 'w', zipfile.ZIP_DEFLATED) as archive:
+        archive.writestr('[Content_Types].xml', content_types)
+        archive.writestr('_rels/.rels', rels)
+        archive.writestr('xl/workbook.xml', workbook)
+        archive.writestr('xl/_rels/workbook.xml.rels', workbook_rels)
+        archive.writestr('xl/worksheets/sheet1.xml', worksheet)
+
+    response = HttpResponse(output.getvalue(), content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+    response['Content-Disposition'] = f'attachment; filename="{filename}"'
+    return response
+
+
+@api_view(['GET'])
+def insights_dashboard(request):
+    if not can_view_insights(request.user):
+        return Response({'detail': 'Only teachers and admins can view insight data.'}, status=status.HTTP_403_FORBIDDEN)
+    return Response(build_insight_payload())
+
+
+@api_view(['GET'])
+def export_insights(request):
+    if not can_view_insights(request.user):
+        return Response({'detail': 'Only teachers and admins can export insight data.'}, status=status.HTTP_403_FORBIDDEN)
+
+    payload = build_insight_payload()
+    rows = insight_export_rows(payload)
+    export_format = (request.query_params.get('format') or 'csv').lower()
+    filename_base = f'insights-{timezone.localdate():%Y%m%d}'
+
+    if export_format in ['xlsx', 'excel']:
+        return make_xlsx_response(rows, f'{filename_base}.xlsx')
+
+    headers = ['section', 'student', 'mood', 'intensity', 'sleep_quality', 'pressure_sources', 'note', 'scale', 'score', 'risk_level', 'suggestion', 'counselor', 'topic', 'status', 'scheduled_at', 'confidential_note', 'level', 'trigger', 'handled', 'handler_note', 'created_at']
+    output = io.StringIO()
+    output.write('\ufeff')
+    writer = csv.DictWriter(output, fieldnames=headers)
+    writer.writeheader()
+    writer.writerows(rows)
+    response = HttpResponse(output.getvalue(), content_type='text/csv; charset=utf-8')
+    response['Content-Disposition'] = f'attachment; filename="{filename_base}.csv"'
+    return response
+
+
 @api_view(['GET'])
 def counselor_recommendations(request):
     student_id = request.query_params.get('student')
@@ -353,9 +581,60 @@ def counselor_recommendations(request):
 
 
 @api_view(['GET'])
+def alert_student_detail(request, alert_id):
+    if not can_view_alert_details(request.user):
+        return Response({'detail': 'Only teachers and admins can view alert student details.'}, status=status.HTTP_403_FORBIDDEN)
+
+    alert = CrisisAlert.objects.select_related('student__user').filter(id=alert_id).first()
+    if not alert:
+        return Response({'detail': 'Alert not found.'}, status=status.HTTP_404_NOT_FOUND)
+
+    student = alert.student
+    moods = MoodEntry.objects.select_related('student__user').filter(student=student)[:30]
+    treeholes = TreeHolePost.objects.select_related('student__user').prefetch_related('replies').filter(student=student)[:30]
+    records = AssessmentRecord.objects.select_related('student__user', 'scale').filter(student=student)[:30]
+    appointments = Appointment.objects.select_related('student__user', 'counselor').filter(student=student)[:30]
+    resource_views = ResourceViewLog.objects.select_related('student__user', 'article').filter(student=student)[:30]
+    alerts = CrisisAlert.objects.select_related('student__user').filter(student=student)[:30]
+
+    return Response({
+        'alert': CrisisAlertSerializer(alert).data,
+        'student': StudentProfileSerializer(student).data,
+        'moods': MoodEntrySerializer(moods, many=True).data,
+        'treeholes': TreeHolePostSerializer(treeholes, many=True).data,
+        'records': AssessmentRecordSerializer(records, many=True).data,
+        'appointments': AppointmentSerializer(appointments, many=True).data,
+        'resource_views': ResourceViewLogSerializer(resource_views, many=True).data,
+        'alerts': CrisisAlertSerializer(alerts, many=True).data,
+    })
+
+
+@api_view(['POST'])
+@authentication_classes([CsrfExemptSessionAuthentication])
+def record_resource_view(request, article_id):
+    if user_role(request.user) != AccountProfile.ROLE_STUDENT:
+        return Response({'recorded': False})
+
+    student = get_request_student(request)
+    article = Article.objects.filter(id=article_id, is_published=True).first()
+    if not student or not article:
+        return Response({'detail': 'Article not found.'}, status=status.HTTP_404_NOT_FOUND)
+
+    log = ResourceViewLog.objects.create(
+        student=student,
+        article=article,
+        article_title=article.title,
+        article_source=article.source,
+        article_category=article.category,
+    )
+    return Response(ResourceViewLogSerializer(log).data, status=status.HTTP_201_CREATED)
+
+
+@api_view(['GET'])
 def module_center(request):
     role = user_role(request.user)
     student = get_request_student(request) if role == AccountProfile.ROLE_STUDENT else None
+    teacher_counselor = ensure_teacher_counselor(request.user) if role == AccountProfile.ROLE_TEACHER else None
     mood_queryset = MoodEntry.objects.all() if not student else MoodEntry.objects.filter(student=student)
     record_queryset = AssessmentRecord.objects.all() if not student else AssessmentRecord.objects.filter(student=student)
     appointment_queryset = Appointment.objects.all()
@@ -367,6 +646,7 @@ def module_center(request):
     alert_queryset = CrisisAlert.objects.filter(handled=False) if role in [AccountProfile.ROLE_TEACHER, AccountProfile.ROLE_ADMIN] else CrisisAlert.objects.none()
     return Response({
         'student': StudentProfileSerializer(student).data if student else None,
+        'teacher_counselor': CounselorSerializer(teacher_counselor).data if teacher_counselor else None,
         'role': role,
         'moods': MoodEntrySerializer(mood_queryset[:12], many=True).data,
         'treeholes': TreeHolePostSerializer(TreeHolePost.objects.prefetch_related('replies')[:8], many=True).data,
@@ -508,6 +788,89 @@ def reply_treehole(request, post_id):
     return Response(TreeHoleReplySerializer(reply).data, status=status.HTTP_201_CREATED)
 
 
+@api_view(['GET', 'PATCH'])
+@authentication_classes([CsrfExemptSessionAuthentication])
+def teacher_profile(request):
+    if user_role(request.user) != AccountProfile.ROLE_TEACHER:
+        return Response({'detail': '只有心理教师可以维护个人资料。'}, status=status.HTTP_403_FORBIDDEN)
+
+    counselor = ensure_teacher_counselor(request.user)
+    if request.method == 'PATCH':
+        name = (request.data.get('name') or '').strip()
+        title = (request.data.get('title') or '').strip()
+        qualifications = (request.data.get('qualifications') or '').strip()
+        specialties = normalize_list_value(request.data.get('specialties'))
+        available_slots = normalize_list_value(request.data.get('available_slots'))
+
+        if name:
+            request.user.first_name = name
+            request.user.last_name = ''
+            request.user.save(update_fields=['first_name', 'last_name'])
+            counselor.name = name
+        if title:
+            counselor.title = title
+        counselor.qualifications = qualifications
+        counselor.specialties = specialties
+        counselor.available_slots = available_slots
+        counselor.is_active = True
+        counselor.source = '教师个人资料'
+        counselor.save()
+
+    return Response(CounselorSerializer(counselor).data)
+
+
+def serialize_profile_payload(user):
+    role = user_role(user)
+    student = get_request_student(request=type('RequestProxy', (), {'user': user})()) if role == AccountProfile.ROLE_STUDENT else None
+    counselor = ensure_teacher_counselor(user) if role == AccountProfile.ROLE_TEACHER else None
+    return {
+        'user': serialize_user(user),
+        'student': StudentProfileSerializer(student).data if student else None,
+        'teacher_counselor': CounselorSerializer(counselor).data if counselor else None,
+    }
+
+
+@api_view(['GET', 'PATCH'])
+@authentication_classes([CsrfExemptSessionAuthentication])
+def user_profile(request):
+    if not request.user.is_authenticated:
+        return Response({'detail': '请先登录后再编辑个人资料。'}, status=status.HTTP_403_FORBIDDEN)
+
+    role = user_role(request.user)
+    if request.method == 'PATCH':
+        name = (request.data.get('name') or '').strip()
+        email = (request.data.get('email') or '').strip()
+        if name:
+            request.user.first_name = name
+            request.user.last_name = ''
+        request.user.email = email
+        request.user.save(update_fields=['first_name', 'last_name', 'email'])
+
+        if role == AccountProfile.ROLE_STUDENT:
+            student = get_request_student(request)
+            student.college = (request.data.get('college') or '').strip()
+            student.grade = (request.data.get('grade') or '').strip()
+            student.privacy_consent = bool(request.data.get('privacy_consent', student.privacy_consent))
+            student.pressure_sources = normalize_list_value(request.data.get('pressure_sources'))
+            student.preferred_topics = normalize_list_value(request.data.get('preferred_topics'))
+            student.save()
+        elif role == AccountProfile.ROLE_TEACHER:
+            counselor = ensure_teacher_counselor(request.user)
+            title = (request.data.get('title') or '').strip()
+            if name:
+                counselor.name = name
+            if title:
+                counselor.title = title
+            counselor.specialties = normalize_list_value(request.data.get('specialties'))
+            counselor.qualifications = (request.data.get('qualifications') or '').strip()
+            counselor.available_slots = normalize_list_value(request.data.get('available_slots'))
+            counselor.is_active = True
+            counselor.source = '教师个人资料'
+            counselor.save()
+
+    return Response(serialize_profile_payload(request.user))
+
+
 @api_view(['GET'])
 def current_user(request):
     if not request.user.is_authenticated:
@@ -534,6 +897,9 @@ def register_user(request):
     privacy_consent = bool(request.data.get('privacy_consent', False))
     pressure_sources = normalize_list_value(request.data.get('pressure_sources'))
     preferred_topics = normalize_list_value(request.data.get('preferred_topics'))
+    teacher_title = (request.data.get('teacher_title') or '心理教师').strip()
+    teacher_specialties = normalize_list_value(request.data.get('teacher_specialties'))
+    teacher_qualifications = (request.data.get('teacher_qualifications') or '').strip()
 
     if not username or not password:
         return Response({'detail': '请输入账号和密码。'}, status=status.HTTP_400_BAD_REQUEST)
@@ -560,6 +926,13 @@ def register_user(request):
             privacy_consent=privacy_consent,
             pressure_sources=pressure_sources,
             preferred_topics=preferred_topics,
+        )
+    elif ROLE_MAP.get(role) == AccountProfile.ROLE_TEACHER:
+        ensure_teacher_counselor(
+            user,
+            title=teacher_title,
+            specialties=teacher_specialties,
+            qualifications=teacher_qualifications,
         )
 
     login(request, user)
