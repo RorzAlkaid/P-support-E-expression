@@ -298,5 +298,3 @@ class CrisisAlert(TimeStampedModel):
 
     def __str__(self):
         return f'{self.student} {self.level}'
-
-# Create your models here.

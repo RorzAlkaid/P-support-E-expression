@@ -123,5 +123,3 @@ class TreeHoleReplyAdmin(admin.ModelAdmin):
     list_display = ('post', 'responder_name', 'is_counselor_reply', 'created_at')
     list_filter = ('is_counselor_reply',)
     search_fields = ('content', 'responder_name')
-
-# Register your models here.

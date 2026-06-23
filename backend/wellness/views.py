@@ -7,7 +7,7 @@ from html import escape
 
 from django.contrib.auth import authenticate, login, logout
 from django.contrib.auth.models import User
-from django.db.models import Avg, Count
+from django.db.models import Avg
 from django.http import HttpResponse
 from django.utils import timezone
 from rest_framework import status, viewsets
@@ -63,6 +63,9 @@ ROLE_MAP = {
     '管理员': AccountProfile.ROLE_ADMIN,
 }
 
+READ_METHODS = ('GET', 'HEAD', 'OPTIONS')
+TEACHER_ADMIN_ROLES = (AccountProfile.ROLE_TEACHER, AccountProfile.ROLE_ADMIN)
+
 
 def user_role(user):
     if not user.is_authenticated:
@@ -84,7 +87,7 @@ def require_write_role(request, allow_admin=True):
 
 
 def can_view_alert_details(user):
-    return user_role(user) in [AccountProfile.ROLE_TEACHER, AccountProfile.ROLE_ADMIN]
+    return user_role(user) in TEACHER_ADMIN_ROLES
 
 
 def can_view_insights(user):
@@ -92,7 +95,7 @@ def can_view_insights(user):
 
 
 def can_export_insights(user):
-    return user_role(user) in [AccountProfile.ROLE_TEACHER, AccountProfile.ROLE_ADMIN]
+    return user_role(user) in TEACHER_ADMIN_ROLES
 
 
 def ensure_teacher_counselor(user, **defaults):
@@ -134,54 +137,45 @@ def normalize_list_value(value):
     return [item.strip() for item in str(value or '').replace('，', ',').replace('、', ',').split(',') if item.strip()]
 
 
-class StudentProfileViewSet(viewsets.ModelViewSet):
+def is_read_request(request):
+    return request.method in READ_METHODS
+
+
+class AdminManagedModelViewSet(viewsets.ModelViewSet):
     authentication_classes = [CsrfExemptSessionAuthentication]
+    admin_write_message = '只有管理员可以维护基础数据。'
+
+    def initial(self, request, *args, **kwargs):
+        super().initial(request, *args, **kwargs)
+        if not is_read_request(request) and user_role(request.user) != AccountProfile.ROLE_ADMIN:
+            self.permission_denied(request, message=self.admin_write_message)
+
+
+class StudentProfileViewSet(AdminManagedModelViewSet):
     queryset = StudentProfile.objects.select_related('user').all()
     serializer_class = StudentProfileSerializer
 
     def get_permissions(self):
-        if self.request.method in ['GET', 'HEAD', 'OPTIONS']:
+        if is_read_request(self.request):
             return []
         return super().get_permissions()
 
-    def initial(self, request, *args, **kwargs):
-        super().initial(request, *args, **kwargs)
-        if request.method not in ['GET', 'HEAD', 'OPTIONS'] and user_role(request.user) != AccountProfile.ROLE_ADMIN:
-            self.permission_denied(request, message='只有管理员可以维护基础数据。')
 
-
-class CounselorViewSet(viewsets.ModelViewSet):
-    authentication_classes = [CsrfExemptSessionAuthentication]
+class CounselorViewSet(AdminManagedModelViewSet):
     queryset = Counselor.objects.all()
     serializer_class = CounselorSerializer
 
-    def initial(self, request, *args, **kwargs):
-        super().initial(request, *args, **kwargs)
-        if request.method not in ['GET', 'HEAD', 'OPTIONS'] and user_role(request.user) != AccountProfile.ROLE_ADMIN:
-            self.permission_denied(request, message='只有管理员可以维护基础数据。')
 
-
-class ArticleViewSet(viewsets.ModelViewSet):
-    authentication_classes = [CsrfExemptSessionAuthentication]
+class ArticleViewSet(AdminManagedModelViewSet):
     queryset = Article.objects.filter(is_published=True)
     serializer_class = ArticleSerializer
     pagination_class = None
 
-    def initial(self, request, *args, **kwargs):
-        super().initial(request, *args, **kwargs)
-        if request.method not in ['GET', 'HEAD', 'OPTIONS'] and user_role(request.user) != AccountProfile.ROLE_ADMIN:
-            self.permission_denied(request, message='只有管理员可以维护基础数据。')
 
-
-class ExternalResourceSourceViewSet(viewsets.ModelViewSet):
-    authentication_classes = [CsrfExemptSessionAuthentication]
+class ExternalResourceSourceViewSet(AdminManagedModelViewSet):
+    admin_write_message = '只有管理员可以维护外部资源源站。'
     queryset = ExternalResourceSource.objects.all()
     serializer_class = ExternalResourceSourceSerializer
-
-    def initial(self, request, *args, **kwargs):
-        super().initial(request, *args, **kwargs)
-        if request.method not in ['GET', 'HEAD', 'OPTIONS'] and user_role(request.user) != AccountProfile.ROLE_ADMIN:
-            self.permission_denied(request, message='只有管理员可以维护外部资源源站。')
 
 
 class ResourceFetchLogViewSet(viewsets.ReadOnlyModelViewSet):
@@ -189,37 +183,19 @@ class ResourceFetchLogViewSet(viewsets.ReadOnlyModelViewSet):
     serializer_class = ResourceFetchLogSerializer
 
 
-class AssessmentScaleViewSet(viewsets.ModelViewSet):
-    authentication_classes = [CsrfExemptSessionAuthentication]
+class AssessmentScaleViewSet(AdminManagedModelViewSet):
     queryset = AssessmentScale.objects.all()
     serializer_class = AssessmentScaleSerializer
 
-    def initial(self, request, *args, **kwargs):
-        super().initial(request, *args, **kwargs)
-        if request.method not in ['GET', 'HEAD', 'OPTIONS'] and user_role(request.user) != AccountProfile.ROLE_ADMIN:
-            self.permission_denied(request, message='只有管理员可以维护基础数据。')
 
-
-class AssessmentRecordViewSet(viewsets.ModelViewSet):
-    authentication_classes = [CsrfExemptSessionAuthentication]
+class AssessmentRecordViewSet(AdminManagedModelViewSet):
     queryset = AssessmentRecord.objects.select_related('student__user', 'scale').all()
     serializer_class = AssessmentRecordSerializer
 
-    def initial(self, request, *args, **kwargs):
-        super().initial(request, *args, **kwargs)
-        if request.method not in ['GET', 'HEAD', 'OPTIONS'] and user_role(request.user) != AccountProfile.ROLE_ADMIN:
-            self.permission_denied(request, message='只有管理员可以维护基础数据。')
 
-
-class MoodEntryViewSet(viewsets.ModelViewSet):
-    authentication_classes = [CsrfExemptSessionAuthentication]
+class MoodEntryViewSet(AdminManagedModelViewSet):
     queryset = MoodEntry.objects.select_related('student__user').all()
     serializer_class = MoodEntrySerializer
-
-    def initial(self, request, *args, **kwargs):
-        super().initial(request, *args, **kwargs)
-        if request.method not in ['GET', 'HEAD', 'OPTIONS'] and user_role(request.user) != AccountProfile.ROLE_ADMIN:
-            self.permission_denied(request, message='只有管理员可以维护基础数据。')
 
 
 class AppointmentViewSet(viewsets.ModelViewSet):
@@ -230,9 +206,9 @@ class AppointmentViewSet(viewsets.ModelViewSet):
     def initial(self, request, *args, **kwargs):
         super().initial(request, *args, **kwargs)
         role = user_role(request.user)
-        if request.method == 'PATCH' and role in [AccountProfile.ROLE_TEACHER, AccountProfile.ROLE_ADMIN]:
+        if request.method == 'PATCH' and role in TEACHER_ADMIN_ROLES:
             return
-        if request.method not in ['GET', 'HEAD', 'OPTIONS'] and role != AccountProfile.ROLE_ADMIN:
+        if not is_read_request(request) and role != AccountProfile.ROLE_ADMIN:
             self.permission_denied(request, message='只有管理员可以维护基础数据。')
 
     def partial_update(self, request, *args, **kwargs):
@@ -253,44 +229,32 @@ class CrisisAlertViewSet(viewsets.ModelViewSet):
     def initial(self, request, *args, **kwargs):
         super().initial(request, *args, **kwargs)
         role = user_role(request.user)
-        if request.method in ['GET', 'HEAD', 'OPTIONS'] and role in [AccountProfile.ROLE_TEACHER, AccountProfile.ROLE_ADMIN]:
+        if is_read_request(request) and role in TEACHER_ADMIN_ROLES:
             return
-        if request.method not in ['GET', 'HEAD', 'OPTIONS'] and role == AccountProfile.ROLE_ADMIN:
+        if not is_read_request(request) and role == AccountProfile.ROLE_ADMIN:
             return
-        if request.method in ['GET', 'HEAD', 'OPTIONS']:
+        if is_read_request(request):
             self.permission_denied(request, message='只有教师和管理员可以查看预警数据。')
         else:
             self.permission_denied(request, message='只有管理员可以维护基础数据。')
 
 
-class TreeHolePostViewSet(viewsets.ModelViewSet):
-    authentication_classes = [CsrfExemptSessionAuthentication]
+class TreeHolePostViewSet(AdminManagedModelViewSet):
     queryset = TreeHolePost.objects.select_related('student__user').prefetch_related('replies').all()
     serializer_class = TreeHolePostSerializer
 
-    def initial(self, request, *args, **kwargs):
-        super().initial(request, *args, **kwargs)
-        if request.method not in ['GET', 'HEAD', 'OPTIONS'] and user_role(request.user) != AccountProfile.ROLE_ADMIN:
-            self.permission_denied(request, message='只有管理员可以维护基础数据。')
 
-
-class TreeHoleReplyViewSet(viewsets.ModelViewSet):
-    authentication_classes = [CsrfExemptSessionAuthentication]
+class TreeHoleReplyViewSet(AdminManagedModelViewSet):
     queryset = TreeHoleReply.objects.select_related('post').all()
     serializer_class = TreeHoleReplySerializer
 
-    def initial(self, request, *args, **kwargs):
-        super().initial(request, *args, **kwargs)
-        if request.method not in ['GET', 'HEAD', 'OPTIONS'] and user_role(request.user) != AccountProfile.ROLE_ADMIN:
-            self.permission_denied(request, message='只有管理员可以维护基础数据。')
 
-
-def get_request_student(request):
-    if request.user.is_authenticated and user_role(request.user) == AccountProfile.ROLE_STUDENT:
+def get_student_for_user(user):
+    if user.is_authenticated and user_role(user) == AccountProfile.ROLE_STUDENT:
         profile, _ = StudentProfile.objects.get_or_create(
-            user=request.user,
+            user=user,
             defaults={
-                'student_no': request.user.username,
+                'student_no': user.username,
                 'privacy_consent': True,
                 'pressure_sources': [],
                 'preferred_topics': [],
@@ -298,6 +262,10 @@ def get_request_student(request):
         )
         return profile
     return StudentProfile.objects.select_related('user').first()
+
+
+def get_request_student(request):
+    return get_student_for_user(request.user)
 
 
 def contains_risk_text(text):
@@ -825,7 +793,7 @@ def teacher_profile(request):
 
 def serialize_profile_payload(user):
     role = user_role(user)
-    student = get_request_student(request=type('RequestProxy', (), {'user': user})()) if role == AccountProfile.ROLE_STUDENT else None
+    student = get_student_for_user(user) if role == AccountProfile.ROLE_STUDENT else None
     counselor = ensure_teacher_counselor(user) if role == AccountProfile.ROLE_TEACHER else None
     return {
         'user': serialize_user(user),
@@ -977,5 +945,3 @@ def health_check(request):
         'service': '大学生心理支持与情绪表达平台 API',
         'time': timezone.localtime().isoformat(),
     })
-
-# Create your views here.
