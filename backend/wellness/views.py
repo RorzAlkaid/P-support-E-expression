@@ -88,6 +88,10 @@ def can_view_alert_details(user):
 
 
 def can_view_insights(user):
+    return True
+
+
+def can_export_insights(user):
     return user_role(user) in [AccountProfile.ROLE_TEACHER, AccountProfile.ROLE_ADMIN]
 
 
@@ -527,18 +531,18 @@ def make_xlsx_response(rows, filename):
 @api_view(['GET'])
 def insights_dashboard(request):
     if not can_view_insights(request.user):
-        return Response({'detail': 'Only teachers and admins can view insight data.'}, status=status.HTTP_403_FORBIDDEN)
+        return Response({'detail': '当前用户不能查看数据洞察。'}, status=status.HTTP_403_FORBIDDEN)
     return Response(build_insight_payload())
 
 
 @api_view(['GET'])
-def export_insights(request):
-    if not can_view_insights(request.user):
-        return Response({'detail': 'Only teachers and admins can export insight data.'}, status=status.HTTP_403_FORBIDDEN)
+def export_insights(request, file_format=None):
+    if not can_export_insights(request.user):
+        return Response({'detail': '只有教师和管理员可以导出数据洞察。'}, status=status.HTTP_403_FORBIDDEN)
 
     payload = build_insight_payload()
     rows = insight_export_rows(payload)
-    export_format = (request.query_params.get('format') or 'csv').lower()
+    export_format = (file_format or request.query_params.get('file_type') or 'csv').lower()
     filename_base = f'insights-{timezone.localdate():%Y%m%d}'
 
     if export_format in ['xlsx', 'excel']:

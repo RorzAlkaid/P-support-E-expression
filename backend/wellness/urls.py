@@ -18,7 +18,6 @@ router.register('treehole-posts', views.TreeHolePostViewSet)
 router.register('treehole-replies', views.TreeHoleReplyViewSet)
 
 urlpatterns = [
-    path('', include(router.urls)),
     path('auth/me/', views.current_user, name='current-user'),
     path('auth/register/', views.register_user, name='register-user'),
     path('auth/login/', views.login_user, name='login-user'),
@@ -37,7 +36,13 @@ urlpatterns = [
     path('mood-trend/', views.mood_trend, name='mood-trend'),
     path('pressure-distribution/', views.pressure_distribution, name='pressure-distribution'),
     path('insights/', views.insights_dashboard, name='insights-dashboard'),
+    path('export-insights/<str:file_format>/', views.export_insights, name='export-insights-public-format'),
+    path('export-insights/<str:file_format>', views.export_insights, name='export-insights-public-format-no-slash'),
+    path('export-insights/', views.export_insights, name='export-insights-public'),
+    path('export-insights', views.export_insights, name='export-insights-public-no-slash'),
     path('insights/export/', views.export_insights, name='export-insights'),
+    path('insights/export', views.export_insights, name='export-insights-no-slash'),
     path('recommendations/counselors/', views.counselor_recommendations, name='counselor-recommendations'),
     path('health/', views.health_check, name='health-check'),
+    path('', include(router.urls)),
 ]

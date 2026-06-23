@@ -226,7 +226,8 @@ const currentRole = computed(() => currentUser.value?.role || 'guest')
 const canWrite = computed(() => ['student', 'admin'].includes(currentRole.value))
 const canManage = computed(() => currentRole.value === 'admin')
 const canViewAlerts = computed(() => ['teacher', 'admin'].includes(currentRole.value))
-const canViewInsights = computed(() => ['teacher', 'admin'].includes(currentRole.value))
+const canViewInsights = computed(() => true)
+const canDownloadInsights = computed(() => ['teacher', 'admin'].includes(currentRole.value))
 const canOperateAppointments = computed(() => ['teacher', 'admin'].includes(currentRole.value))
 const canPublishTreehole = computed(() => ['student', 'admin'].includes(currentRole.value))
 const canReplyTreehole = computed(() => ['student', 'teacher', 'admin'].includes(currentRole.value))
@@ -268,12 +269,6 @@ function handleScroll() {
 
 function navigate(page) {
   if (['alerts', 'alert-detail'].includes(page) && !canViewAlerts.value) {
-    currentPage.value = 'home'
-    window.location.hash = '/home'
-    window.scrollTo({ top: 0, behavior: 'smooth' })
-    return
-  }
-  if (page === 'insights' && !canViewInsights.value) {
     currentPage.value = 'home'
     window.location.hash = '/home'
     window.scrollTo({ top: 0, behavior: 'smooth' })
@@ -397,10 +392,8 @@ async function loadCurrentUser() {
   if (currentUser.value && currentPage.value === 'profile') {
     await loadUserProfile()
   }
-  if (currentPage.value === 'insights' && canViewInsights.value) {
+  if (currentPage.value === 'insights') {
     await loadInsights()
-  } else if (currentPage.value === 'insights') {
-    navigate('home')
   }
 }
 
@@ -942,7 +935,6 @@ function formatList(value) {
 }
 
 async function loadInsights() {
-  if (!canViewInsights.value) return
   insightLoading.value = true
   insightMessage.value = ''
   try {
@@ -954,25 +946,73 @@ async function loadInsights() {
     scheduleRenderCharts()
   } catch (error) {
     insightLoading.value = false
-    insightMessage.value = error.response?.data?.detail || '数据洞察加载失败，请确认当前账号是否为教师或管理员。'
+    insightMessage.value = error.response?.data?.detail || '数据洞察加载失败，请确认后端服务已启动。'
   }
 }
 
 async function downloadInsightExport(format) {
-  if (!canViewInsights.value) return
-  const response = await axios.get(`/api/insights/export/?format=${format}`, { responseType: 'blob' })
-  const blobUrl = window.URL.createObjectURL(response.data)
-  const link = document.createElement('a')
-  link.href = blobUrl
-  link.download = `数据洞察-${new Date().toISOString().slice(0, 10)}.${format === 'excel' ? 'xlsx' : 'csv'}`
-  document.body.appendChild(link)
-  link.click()
-  link.remove()
-  window.URL.revokeObjectURL(blobUrl)
+  if (!canDownloadInsights.value) {
+    insightMessage.value = '只有教师和管理员可以下载数据洞察。'
+    return
+  }
+  const extension = format === 'excel' ? 'xlsx' : 'csv'
+  insightMessage.value = `正在生成 ${extension.toUpperCase()} 文件...`
+  try {
+    let response
+    try {
+      response = await axios.get(`/api/export-insights/${format}/`, {
+        responseType: 'blob',
+        withCredentials: true,
+      })
+    } catch (error) {
+      if (error.response?.status !== 404) throw error
+      response = await axios.get(`/api/export-insights/${format}`, {
+        responseType: 'blob',
+        withCredentials: true,
+      })
+    }
+    const contentType = response.headers['content-type'] || 'application/octet-stream'
+    if (contentType.includes('application/json')) {
+      const errorText = await response.data.text()
+      const errorData = JSON.parse(errorText)
+      insightMessage.value = errorData.detail || '导出失败，请确认当前账号是否为教师或管理员。'
+      return
+    }
+
+    const blob = new Blob([response.data], { type: contentType })
+    const blobUrl = window.URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = blobUrl
+    link.download = `数据洞察-${new Date().toISOString().slice(0, 10)}.${extension}`
+    document.body.appendChild(link)
+    link.click()
+    link.remove()
+    window.URL.revokeObjectURL(blobUrl)
+    insightMessage.value = `${extension.toUpperCase()} 文件已生成，请查看浏览器下载列表。`
+  } catch (error) {
+    if (error.response?.data instanceof Blob) {
+      const errorText = await error.response.data.text()
+      try {
+        const errorData = JSON.parse(errorText)
+        insightMessage.value = errorData.detail || '导出失败，请稍后重试。'
+      } catch {
+        insightMessage.value = errorText || '导出失败，请稍后重试。'
+      }
+      return
+    }
+    insightMessage.value = `导出失败（${error.response?.status || '网络错误'}），请确认后端已重启。`
+  }
 }
 
 function downloadChart(chart, filename) {
-  if (!chart) return
+  if (!canDownloadInsights.value) {
+    insightMessage.value = '只有教师和管理员可以下载图表。'
+    return
+  }
+  if (!chart) {
+    insightMessage.value = '图表还未渲染完成，请稍后再下载。'
+    return
+  }
   const link = document.createElement('a')
   link.href = chart.getDataURL({ type: 'png', pixelRatio: 2, backgroundColor: '#ffffff' })
   link.download = filename
@@ -1047,8 +1087,8 @@ async function editAlert(alert) {
         <a href="#/treehole" @click.prevent="navigate('treehole')">匿名树洞</a>
         <a href="#/assessment" @click.prevent="navigate('assessment')">心理测评</a>
         <a href="#/appointment" @click.prevent="navigate('appointment')">咨询预约</a>
+        <a href="#/insights" @click.prevent="navigate('insights')">数据洞察</a>
         <a href="#/resources" @click.prevent="navigate('resources')">心理资源</a>
-        <a v-if="canViewInsights" href="#/insights" @click.prevent="navigate('insights')">数据洞察</a>
         <a v-if="canViewAlerts" class="alert-nav-link" href="#/alerts" @click.prevent="navigate('alerts')">预警管理</a>
       </nav>
 
@@ -1198,7 +1238,7 @@ async function editAlert(alert) {
             </article>
           </div>
         </template>
-        <button v-if="canViewInsights" class="more-link" type="button" @click="navigate('insights')">&gt;&gt;&gt;进入数据洞察专题页</button>
+        <button class="more-link" type="button" @click="navigate('insights')">&gt;&gt;&gt;进入数据洞察专题页</button>
       </section>
 
       <section id="support" class="section support-section scroll-follow follow-deep">
@@ -1296,14 +1336,14 @@ async function editAlert(alert) {
         <h1>{{ pageTitles[currentPage] }}</h1>
       </section>
 
-      <section v-if="currentPage === 'insights' && canViewInsights" class="insights-page module-panel page-panel">
+      <section v-if="currentPage === 'insights'" class="insights-page module-panel page-panel">
         <div class="insights-toolbar">
           <div>
-            <span class="eyebrow">教师与管理员专用</span>
+            <span class="eyebrow">开放数据看板</span>
             <h2>数据洞察专题页</h2>
-            <p>集中查看情绪、压力、测评风险和咨询预约数据，并导出给咨询师做深度分析。</p>
+            <p>集中查看情绪、压力、测评风险和咨询预约数据；下载与导出仅面向教师和管理员开放。</p>
           </div>
-          <div class="insight-actions">
+          <div v-if="canDownloadInsights" class="insight-actions">
             <button type="button" @click="downloadInsightCharts">下载图表</button>
             <button type="button" @click="downloadInsightExport('csv')">导出 CSV</button>
             <button class="solid-button" type="button" @click="downloadInsightExport('excel')">导出 Excel</button>
@@ -1337,28 +1377,28 @@ async function editAlert(alert) {
             <article class="data-panel">
               <div class="panel-head">
                 <h3>情绪与睡眠趋势</h3>
-                <button type="button" @click="downloadChart(trendChart, '情绪与睡眠趋势.png')">下载</button>
+                <button v-if="canDownloadInsights" type="button" @click="downloadChart(trendChart, '情绪与睡眠趋势.png')">下载</button>
               </div>
               <div ref="trendChartRef" class="chart-box"></div>
             </article>
             <article class="data-panel">
               <div class="panel-head">
                 <h3>压力来源雷达图</h3>
-                <button type="button" @click="downloadChart(pressureChart, '压力来源雷达图.png')">下载</button>
+                <button v-if="canDownloadInsights" type="button" @click="downloadChart(pressureChart, '压力来源雷达图.png')">下载</button>
               </div>
               <div ref="pressureChartRef" class="chart-box"></div>
             </article>
             <article class="data-panel">
               <div class="panel-head">
                 <h3>风险等级分布</h3>
-                <button type="button" @click="downloadChart(riskChart, '风险等级分布.png')">下载</button>
+                <button v-if="canDownloadInsights" type="button" @click="downloadChart(riskChart, '风险等级分布.png')">下载</button>
               </div>
               <div ref="riskChartRef" class="chart-box"></div>
             </article>
             <article class="data-panel">
               <div class="panel-head">
                 <h3>预约状态分布</h3>
-                <button type="button" @click="downloadChart(appointmentChart, '预约状态分布.png')">下载</button>
+                <button v-if="canDownloadInsights" type="button" @click="downloadChart(appointmentChart, '预约状态分布.png')">下载</button>
               </div>
               <div ref="appointmentChartRef" class="chart-box"></div>
             </article>
