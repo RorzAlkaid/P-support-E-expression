@@ -1,4 +1,5 @@
 from rest_framework import serializers
+from django.utils import timezone
 
 from .models import (
     Appointment,
@@ -174,6 +175,11 @@ class AppointmentSerializer(serializers.ModelSerializer):
             'confidential_note',
             'created_at',
         ]
+
+    def validate_scheduled_at(self, value):
+        if value <= timezone.now():
+            raise serializers.ValidationError('预约时间不能早于当前时间。')
+        return value
 
 
 class CrisisAlertSerializer(serializers.ModelSerializer):

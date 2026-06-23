@@ -1,5 +1,6 @@
 import csv
 import io
+import re
 import zipfile
 from collections import Counter
 from datetime import timedelta
@@ -7,8 +8,11 @@ from html import escape
 
 from django.contrib.auth import authenticate, login, logout
 from django.contrib.auth.models import User
+from django.core.exceptions import ValidationError
+from django.core.validators import validate_email
 from django.db.models import Avg
 from django.http import HttpResponse
+from django.utils.dateparse import parse_datetime
 from django.utils import timezone
 from rest_framework import status, viewsets
 from rest_framework.authentication import SessionAuthentication
@@ -49,6 +53,8 @@ from .serializers import (
 
 
 RISK_KEYWORDS = ['自伤', '自杀', '不想活', '结束生命', '伤害自己', '活不下去']
+PASSWORD_RULE = re.compile(r'^(?=.*[a-z])(?=.*[A-Z]).{8,}$')
+FOUR_DIGIT_YEAR_RULE = re.compile(r'^\d{4}$')
 
 
 class CsrfExemptSessionAuthentication(SessionAuthentication):
@@ -159,6 +165,37 @@ def normalize_list_value(value):
     if isinstance(value, list):
         return [str(item).strip() for item in value if str(item).strip()]
     return [item.strip() for item in str(value or '').replace('，', ',').replace('、', ',').split(',') if item.strip()]
+
+
+def validate_common_identity(username=None, name=None, email=None, password=None, student_no=None, grade=None, pressure_sources=None):
+    if username is not None and len(username) > 20:
+        return '账号不能超过20个字符。'
+    if name is not None and len(name) > 12:
+        return '姓名不能超过12个字符。'
+    if email:
+        try:
+            validate_email(email)
+        except ValidationError:
+            return '邮箱格式不正确。'
+    if password is not None and not PASSWORD_RULE.match(password):
+        return '密码至少8位，且必须同时包含大写字母和小写字母。'
+    if student_no is not None and len(student_no) > 50:
+        return '学号不能超过50个字符。'
+    if grade is not None and grade and not FOUR_DIGIT_YEAR_RULE.match(grade):
+        return '年级只能输入四位数字。'
+    for item in pressure_sources or []:
+        if len(item) > 20:
+            return '压力来源每项不能超过20个字。'
+    return ''
+
+
+def parse_future_datetime(value):
+    parsed = parse_datetime(str(value or ''))
+    if not parsed:
+        return None
+    if timezone.is_naive(parsed):
+        parsed = timezone.make_aware(parsed, timezone.get_current_timezone())
+    return parsed
 
 
 def is_read_request(request):
@@ -677,12 +714,17 @@ def submit_mood_entry(request):
     if not student:
         return Response({'detail': '请先创建学生账号。'}, status=status.HTTP_400_BAD_REQUEST)
 
+    pressure_sources = normalize_list_value(request.data.get('pressure_sources'))
+    validation_error = validate_common_identity(pressure_sources=pressure_sources)
+    if validation_error:
+        return Response({'detail': validation_error}, status=status.HTTP_400_BAD_REQUEST)
+
     entry = MoodEntry.objects.create(
         student=student,
         mood=request.data.get('mood') or '平静',
         intensity=int(request.data.get('intensity') or 5),
         sleep_quality=int(request.data.get('sleep_quality') or 5),
-        pressure_sources=request.data.get('pressure_sources') or [],
+        pressure_sources=pressure_sources,
         note=request.data.get('note') or '',
         is_private=bool(request.data.get('is_private', True)),
     )
@@ -743,6 +785,12 @@ def create_appointment(request):
     scheduled_at = request.data.get('scheduled_at')
     if not scheduled_at:
         scheduled_at = timezone.now() + timedelta(days=1)
+    else:
+        scheduled_at = parse_future_datetime(scheduled_at)
+        if not scheduled_at:
+            return Response({'detail': '预约时间格式不正确。'}, status=status.HTTP_400_BAD_REQUEST)
+        if scheduled_at <= timezone.now():
+            return Response({'detail': '预约时间不能早于当前时间。'}, status=status.HTTP_400_BAD_REQUEST)
 
     appointment = Appointment.objects.create(
         student=student,
@@ -810,6 +858,9 @@ def teacher_profile(request):
         qualifications = (request.data.get('qualifications') or '').strip()
         specialties = normalize_list_value(request.data.get('specialties'))
         available_slots = normalize_list_value(request.data.get('available_slots'))
+        validation_error = validate_common_identity(name=name)
+        if validation_error:
+            return Response({'detail': validation_error}, status=status.HTTP_400_BAD_REQUEST)
 
         if name:
             request.user.first_name = name
@@ -849,6 +900,9 @@ def user_profile(request):
     if request.method == 'PATCH':
         name = (request.data.get('name') or '').strip()
         email = (request.data.get('email') or '').strip()
+        validation_error = validate_common_identity(name=name, email=email)
+        if validation_error:
+            return Response({'detail': validation_error}, status=status.HTTP_400_BAD_REQUEST)
         if name:
             request.user.first_name = name
             request.user.last_name = ''
@@ -857,10 +911,15 @@ def user_profile(request):
 
         if role == AccountProfile.ROLE_STUDENT:
             student = get_request_student(request)
+            grade = (request.data.get('grade') or '').strip()
+            pressure_sources = normalize_list_value(request.data.get('pressure_sources'))
+            validation_error = validate_common_identity(grade=grade, pressure_sources=pressure_sources)
+            if validation_error:
+                return Response({'detail': validation_error}, status=status.HTTP_400_BAD_REQUEST)
             student.college = (request.data.get('college') or '').strip()
-            student.grade = (request.data.get('grade') or '').strip()
+            student.grade = grade
             student.privacy_consent = bool(request.data.get('privacy_consent', student.privacy_consent))
-            student.pressure_sources = normalize_list_value(request.data.get('pressure_sources'))
+            student.pressure_sources = pressure_sources
             student.preferred_topics = normalize_list_value(request.data.get('preferred_topics'))
             student.save()
         elif role == AccountProfile.ROLE_TEACHER:
@@ -914,6 +973,17 @@ def register_user(request):
         return Response({'detail': '请输入账号和密码。'}, status=status.HTTP_400_BAD_REQUEST)
     if password != confirm_password:
         return Response({'detail': '两次输入的密码不一致。'}, status=status.HTTP_400_BAD_REQUEST)
+    validation_error = validate_common_identity(
+        username=username,
+        name=full_name,
+        email=email,
+        password=password,
+        student_no=student_no if role == '学生' else None,
+        grade=grade if role == '学生' else None,
+        pressure_sources=pressure_sources if role == '学生' else None,
+    )
+    if validation_error:
+        return Response({'detail': validation_error}, status=status.HTTP_400_BAD_REQUEST)
     if User.objects.filter(username=username).exists():
         return Response({'detail': '该账号已存在，请直接登录。'}, status=status.HTTP_400_BAD_REQUEST)
     if role == '学生' and StudentProfile.objects.filter(student_no=student_no).exists():

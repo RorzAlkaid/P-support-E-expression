@@ -24,6 +24,7 @@ const trendChartRef = ref(null)
 const pressureChartRef = ref(null)
 const riskChartRef = ref(null)
 const appointmentChartRef = ref(null)
+const appointmentTimeInput = ref(null)
 let trendChart = null
 let pressureChart = null
 let riskChart = null
@@ -242,6 +243,7 @@ const moduleDetails = [
 ]
 
 const currentRole = computed(() => currentUser.value?.role || 'guest')
+const minAppointmentDateTime = computed(() => formatDateTimeInput(new Date()))
 const canWrite = computed(() => ['student', 'admin'].includes(currentRole.value))
 const canManage = computed(() => currentRole.value === 'admin')
 const canViewAlerts = computed(() => ['teacher', 'admin'].includes(currentRole.value))
@@ -783,6 +785,51 @@ const steps = [
   '心理老师处理预警并持续回访',
 ]
 
+function charLength(value) {
+  return Array.from(String(value || '').trim()).length
+}
+
+function isValidEmail(value) {
+  if (!value) return true
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(value).trim())
+}
+
+function isValidPassword(value) {
+  return /^(?=.*[a-z])(?=.*[A-Z]).{8,}$/.test(String(value || ''))
+}
+
+function hasValidPressureSources(items) {
+  return items.every((item) => charLength(item) <= 20)
+}
+
+function validateCommonFields({ username, name, email, password, studentNo, grade, pressureSources } = {}) {
+  if (username !== undefined && charLength(username) > 20) return '账号不能超过20个字符。'
+  if (name !== undefined && charLength(name) > 12) return '姓名不能超过12个字符。'
+  if (email !== undefined && !isValidEmail(email)) return '邮箱格式不正确。'
+  if (password !== undefined && !isValidPassword(password)) return '密码至少8位，且必须同时包含大写字母和小写字母。'
+  if (studentNo !== undefined && charLength(studentNo) > 50) return '学号不能超过50个字符。'
+  if (grade !== undefined && grade && !/^\d{4}$/.test(String(grade).trim())) return '年级只能输入四位数字。'
+  if (pressureSources !== undefined && !hasValidPressureSources(pressureSources)) return '压力来源每项不能超过20个字。'
+  return ''
+}
+
+function formatDateTimeInput(date) {
+  const pad = (value) => String(value).padStart(2, '0')
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`
+}
+
+function validateAppointmentTime(value) {
+  if (!value) return '请选择预约时间。'
+  const selected = new Date(value)
+  if (Number.isNaN(selected.getTime())) return '预约时间格式不正确。'
+  if (selected.getTime() <= Date.now()) return '预约时间不能早于当前时间。'
+  return ''
+}
+
+function confirmAppointmentTime() {
+  appointmentTimeInput.value?.blur()
+}
+
 function openAuth(mode) {
   if (mode === 'register') {
     showAuth.value = false
@@ -824,6 +871,20 @@ async function submitRegister() {
   authMessage.value = ''
 
   try {
+    const pressureSources = pressureSourceList(authForm.value.pressureSources)
+    const validationError = validateCommonFields({
+      username: authForm.value.username,
+      name: authForm.value.name,
+      email: authForm.value.email,
+      password: authForm.value.password,
+      studentNo: authForm.value.role === '学生' ? authForm.value.studentNo : undefined,
+      grade: authForm.value.role === '学生' ? authForm.value.grade : undefined,
+      pressureSources: authForm.value.role === '学生' ? pressureSources : undefined,
+    })
+    if (validationError) {
+      authMessage.value = validationError
+      return
+    }
     const payload = {
       username: authForm.value.username,
       password: authForm.value.password,
@@ -834,7 +895,7 @@ async function submitRegister() {
       student_no: authForm.value.studentNo,
       college: authForm.value.college,
       grade: authForm.value.grade,
-      pressure_sources: pressureSourceList(authForm.value.pressureSources),
+      pressure_sources: pressureSources,
       preferred_topics: pressureSourceList(authForm.value.preferredTopics),
       privacy_consent: authForm.value.privacyConsent,
       teacher_title: authForm.value.teacherTitle,
@@ -907,24 +968,39 @@ async function loadUserProfile() {
 
 async function submitUserProfile() {
   profileMessage.value = ''
-  const response = await axios.patch('/api/auth/profile/', {
+  const pressureSources = pressureSourceList(profileForm.value.pressure_sources)
+  const validationError = validateCommonFields({
     name: profileForm.value.name,
     email: profileForm.value.email,
-    college: profileForm.value.college,
-    grade: profileForm.value.grade,
-    pressure_sources: pressureSourceList(profileForm.value.pressure_sources),
-    preferred_topics: pressureSourceList(profileForm.value.preferred_topics),
-    privacy_consent: profileForm.value.privacy_consent,
-    title: profileForm.value.title,
-    specialties: pressureSourceList(profileForm.value.specialties),
-    qualifications: profileForm.value.qualifications,
-    available_slots: pressureSourceList(profileForm.value.available_slots),
+    grade: currentRole.value === 'student' ? profileForm.value.grade : undefined,
+    pressureSources: currentRole.value === 'student' ? pressureSources : undefined,
   })
-  currentUser.value = response.data.user
-  syncProfileForm(response.data)
-  syncTeacherProfileForm(response.data.teacher_counselor)
-  profileMessage.value = '个人资料已保存。'
-  await refreshModules()
+  if (validationError) {
+    profileMessage.value = validationError
+    return
+  }
+  try {
+    const response = await axios.patch('/api/auth/profile/', {
+      name: profileForm.value.name,
+      email: profileForm.value.email,
+      college: profileForm.value.college,
+      grade: profileForm.value.grade,
+      pressure_sources: pressureSources,
+      preferred_topics: pressureSourceList(profileForm.value.preferred_topics),
+      privacy_consent: profileForm.value.privacy_consent,
+      title: profileForm.value.title,
+      specialties: pressureSourceList(profileForm.value.specialties),
+      qualifications: profileForm.value.qualifications,
+      available_slots: pressureSourceList(profileForm.value.available_slots),
+    })
+    currentUser.value = response.data.user
+    syncProfileForm(response.data)
+    syncTeacherProfileForm(response.data.teacher_counselor)
+    profileMessage.value = '个人资料已保存。'
+    await refreshModules()
+  } catch (error) {
+    profileMessage.value = error.response?.data?.detail || '资料保存失败，请检查输入后重试。'
+  }
 }
 
 async function submitMood() {
@@ -938,6 +1014,11 @@ async function submitMood() {
     sleep_quality: Number(moodForm.value.sleep_quality),
     pressure_sources: pressureSourceList(moodForm.value.pressure_sources),
     is_private: true,
+  }
+  const validationError = validateCommonFields({ pressureSources: payload.pressure_sources })
+  if (validationError) {
+    moduleMessage.value = validationError
+    return
   }
   await axios.post('/api/modules/moods/', payload)
   moodForm.value.note = ''
@@ -977,15 +1058,29 @@ async function submitAppointment() {
     moduleMessage.value = readonlyReason.value
     return
   }
-  await axios.post('/api/modules/appointments/', appointmentForm.value)
-  appointmentForm.value.topic = ''
-  appointmentForm.value.confidential_note = ''
-  moduleMessage.value = '预约已提交，等待心理老师确认。'
-  await refreshModules()
+  const validationError = validateAppointmentTime(appointmentForm.value.scheduled_at)
+  if (validationError) {
+    moduleMessage.value = validationError
+    return
+  }
+  try {
+    await axios.post('/api/modules/appointments/', appointmentForm.value)
+    appointmentForm.value.topic = ''
+    appointmentForm.value.confidential_note = ''
+    moduleMessage.value = '预约已提交，等待心理老师确认。'
+    await refreshModules()
+  } catch (error) {
+    moduleMessage.value = error.response?.data?.detail || '预约提交失败，请检查时间和内容后重试。'
+  }
 }
 
 async function submitTeacherProfile() {
   if (currentRole.value !== 'teacher') return
+  const validationError = validateCommonFields({ name: teacherProfileForm.value.name })
+  if (validationError) {
+    moduleMessage.value = validationError
+    return
+  }
   const response = await axios.patch('/api/auth/teacher-profile/', {
     name: teacherProfileForm.value.name,
     title: teacherProfileForm.value.title,
@@ -1120,11 +1215,9 @@ async function loadInsights() {
 
 async function downloadInsightExport(format) {
   if (!canDownloadInsights.value) {
-    insightMessage.value = '只有教师和管理员可以下载数据洞察。'
     return
   }
   const extension = format === 'excel' ? 'xlsx' : 'csv'
-  insightMessage.value = `正在生成 ${extension.toUpperCase()} 文件...`
   try {
     let response
     try {
@@ -1156,7 +1249,6 @@ async function downloadInsightExport(format) {
     link.click()
     link.remove()
     window.URL.revokeObjectURL(blobUrl)
-    insightMessage.value = `${extension.toUpperCase()} 文件已生成，请查看浏览器下载列表。`
   } catch (error) {
     if (error.response?.data instanceof Blob) {
       const errorText = await error.response.data.text()
@@ -1174,11 +1266,9 @@ async function downloadInsightExport(format) {
 
 function downloadChart(chart, filename) {
   if (!canDownloadInsights.value) {
-    insightMessage.value = '只有教师和管理员可以下载图表。'
     return
   }
   if (!chart) {
-    insightMessage.value = '图表还未渲染完成，请稍后再下载。'
     return
   }
   const link = document.createElement('a')
@@ -1545,7 +1635,6 @@ async function editAlert(alert) {
           </div>
         </div>
 
-        <p v-if="insightLoading" class="module-message">正在加载数据洞察...</p>
         <p v-if="insightMessage" class="module-message">{{ insightMessage }}</p>
 
         <template v-if="insightData">
@@ -1635,8 +1724,8 @@ async function editAlert(alert) {
 
         <form class="register-form" @submit.prevent="submitRegister">
           <div class="registration-grid">
-            <label>账号<input v-model.trim="authForm.username" placeholder="用于登录的账号" required /></label>
-            <label>姓名<input v-model.trim="authForm.name" placeholder="真实姓名或常用称呼" /></label>
+            <label>账号<input v-model.trim="authForm.username" maxlength="20" placeholder="用于登录的账号" required /></label>
+            <label>姓名<input v-model.trim="authForm.name" maxlength="12" placeholder="真实姓名或常用称呼" /></label>
             <label>邮箱<input v-model.trim="authForm.email" type="email" placeholder="用于联系和通知" /></label>
             <label>角色
               <select v-model="authForm.role">
@@ -1645,14 +1734,14 @@ async function editAlert(alert) {
                 <option>管理员</option>
               </select>
             </label>
-            <label>密码<input v-model="authForm.password" placeholder="请输入密码" type="password" required /></label>
+            <label>密码<input v-model="authForm.password" minlength="8" pattern="(?=.*[a-z])(?=.*[A-Z]).{8,}" placeholder="至少8位，含大小写字母" type="password" required /></label>
             <label>确认密码<input v-model="authForm.confirmPassword" placeholder="再次输入密码" type="password" required /></label>
 
             <template v-if="authForm.role === '学生'">
-              <label>学号<input v-model.trim="authForm.studentNo" placeholder="学生档案唯一编号" required /></label>
+              <label>学号<input v-model.trim="authForm.studentNo" maxlength="50" placeholder="学生档案唯一编号" required /></label>
               <label>学院<input v-model.trim="authForm.college" placeholder="所在学院" /></label>
-              <label>年级<input v-model.trim="authForm.grade" placeholder="例如：2023级" /></label>
-              <label>压力来源<input v-model="authForm.pressureSources" placeholder="用逗号分隔，如学业、人际、睡眠" /></label>
+              <label>年级<input v-model.trim="authForm.grade" maxlength="4" inputmode="numeric" pattern="\d{4}" placeholder="例如：2023" /></label>
+              <label>压力来源<input v-model="authForm.pressureSources" placeholder="用逗号分隔，每项不超过20字" /></label>
               <label class="full">关注主题<input v-model="authForm.preferredTopics" placeholder="用逗号分隔，如焦虑调节、时间管理、咨询预约" /></label>
               <label class="consent full">
                 <input v-model="authForm.privacyConsent" type="checkbox" />
@@ -1686,13 +1775,13 @@ async function editAlert(alert) {
 
         <form v-if="currentUser" class="register-form" @submit.prevent="submitUserProfile">
           <div class="registration-grid">
-            <label>姓名<input v-model.trim="profileForm.name" required /></label>
+            <label>姓名<input v-model.trim="profileForm.name" maxlength="12" required /></label>
             <label>邮箱<input v-model.trim="profileForm.email" type="email" /></label>
 
             <template v-if="currentRole === 'student'">
               <label>学院<input v-model.trim="profileForm.college" /></label>
-              <label>年级<input v-model.trim="profileForm.grade" /></label>
-              <label>压力来源<input v-model="profileForm.pressure_sources" placeholder="用逗号分隔，如学业、人际、睡眠" /></label>
+              <label>年级<input v-model.trim="profileForm.grade" maxlength="4" inputmode="numeric" pattern="\d{4}" placeholder="例如：2023" /></label>
+              <label>压力来源<input v-model="profileForm.pressure_sources" placeholder="用逗号分隔，每项不超过20字" /></label>
               <label class="full">关注主题<input v-model="profileForm.preferred_topics" placeholder="用逗号分隔，如焦虑调节、时间管理、咨询预约" /></label>
               <label class="consent full">
                 <input v-model="profileForm.privacy_consent" type="checkbox" />
@@ -1765,7 +1854,7 @@ async function editAlert(alert) {
           <label>今日情绪<input v-model="moodForm.mood" /></label>
           <label>情绪强度<input v-model="moodForm.intensity" type="range" min="1" max="10" /></label>
           <label>睡眠质量<input v-model="moodForm.sleep_quality" type="range" min="1" max="10" /></label>
-          <label>压力来源<input v-model="moodForm.pressure_sources" /></label>
+          <label>压力来源<input v-model="moodForm.pressure_sources" placeholder="用逗号分隔，每项不超过20字" /></label>
           <label class="full">日记<textarea v-model="moodForm.note"></textarea></label>
           <button class="solid-button large" type="submit">保存打卡</button>
         </form>
@@ -1846,7 +1935,7 @@ async function editAlert(alert) {
         <div v-if="currentRole === 'teacher'" class="appointment-board teacher-profile-board">
           <h4>教师个人资料</h4>
           <form class="module-form" @submit.prevent="submitTeacherProfile">
-            <label>姓名<input v-model.trim="teacherProfileForm.name" /></label>
+            <label>姓名<input v-model.trim="teacherProfileForm.name" maxlength="12" /></label>
             <label>职称<input v-model.trim="teacherProfileForm.title" placeholder="例如：国家二级心理咨询师" /></label>
             <label class="full">咨询标签<input v-model="teacherProfileForm.specialties" placeholder="用逗号分隔，如情绪调节、压力管理、睡眠" /></label>
             <label class="full">资质说明<textarea v-model="teacherProfileForm.qualifications"></textarea></label>
@@ -1890,7 +1979,12 @@ async function editAlert(alert) {
                 <option v-for="item in moduleData?.counselors" :key="item.id" :value="item.id">{{ item.name }} · {{ item.title }}</option>
               </select>
             </label>
-            <label>预约时间<input v-model="appointmentForm.scheduled_at" type="datetime-local" /></label>
+            <label>预约时间
+              <div class="datetime-control">
+                <input ref="appointmentTimeInput" v-model="appointmentForm.scheduled_at" type="datetime-local" :min="minAppointmentDateTime" required />
+                <button type="button" @click="confirmAppointmentTime">确定</button>
+              </div>
+            </label>
             <label class="full">咨询主题<input v-model="appointmentForm.topic" required /></label>
             <label class="full">保密备注<textarea v-model="appointmentForm.confidential_note"></textarea></label>
             <button class="solid-button large" type="submit">提交预约</button>
@@ -2123,7 +2217,7 @@ async function editAlert(alert) {
         <h2>欢迎回来</h2>
         <p>登录后进入学生端或教师端。</p>
         <form class="auth-form" @submit.prevent="submitAuth">
-          <input v-model.trim="authForm.username" placeholder="账号" required />
+          <input v-model.trim="authForm.username" maxlength="20" placeholder="账号" required />
           <input v-model="authForm.password" placeholder="密码" type="password" required />
           <p v-if="authMessage" class="auth-message">{{ authMessage }}</p>
           <button class="solid-button large" type="submit" :disabled="authSubmitting">

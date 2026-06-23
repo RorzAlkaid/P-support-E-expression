@@ -33,7 +33,7 @@ class AccountProfile(TimeStampedModel):
 
 class StudentProfile(TimeStampedModel):
     user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='student_profile', verbose_name='用户')
-    student_no = models.CharField(max_length=32, unique=True, verbose_name='学号')
+    student_no = models.CharField(max_length=50, unique=True, verbose_name='学号')
     college = models.CharField(max_length=80, blank=True, verbose_name='学院')
     grade = models.CharField(max_length=30, blank=True, verbose_name='年级')
     privacy_consent = models.BooleanField(default=False, verbose_name='隐私授权')

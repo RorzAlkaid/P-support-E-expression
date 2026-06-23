@@ -1553,6 +1553,22 @@ main,
   background: #fffaf9;
 }
 
+.datetime-control {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+}
+
+.datetime-control button {
+  min-height: 44px;
+  padding: 0 14px;
+  border-radius: var(--radius);
+  color: #ffffff;
+  background: var(--rose-dark);
+  font-weight: 760;
+}
+
 .module-form textarea {
   min-height: 104px;
   padding: 12px;
