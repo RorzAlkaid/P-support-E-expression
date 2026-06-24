@@ -1,6 +1,7 @@
 # Backend runtime dependencies for the Django service.
 # Python 3.11+ is recommended.
 # Frontend dependencies are managed separately in frontend/package.json.
+# Invitation-code generation uses Python standard-library modules only.
 
 Django==5.2.15
 django-cors-headers==4.9.0
