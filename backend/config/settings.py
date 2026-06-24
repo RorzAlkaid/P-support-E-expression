@@ -10,6 +10,7 @@ For the full list of settings and their values, see
 https://docs.djangoproject.com/en/5.2/ref/settings/
 """
 
+import os
 from pathlib import Path
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
@@ -131,6 +132,11 @@ CORS_ALLOWED_ORIGINS = [
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
+AI_CHAT_API_URL = os.environ.get('AI_CHAT_API_URL', 'https://api.openai.com/v1/chat/completions')
+AI_CHAT_API_KEY = os.environ.get('AI_CHAT_API_KEY', '')
+AI_CHAT_MODEL = os.environ.get('AI_CHAT_MODEL', 'gpt-4o-mini')
+AI_CHAT_TIMEOUT = int(os.environ.get('AI_CHAT_TIMEOUT', '30'))
+
 REST_FRAMEWORK = {
     'DEFAULT_PERMISSION_CLASSES': [
         'rest_framework.permissions.AllowAny',
@@ -170,6 +176,7 @@ SIMPLEUI_CONFIG = {
                 {'name': '匿名树洞', 'icon': 'fas fa-comment-dots', 'url': 'wellness/treeholepost/'},
                 {'name': '树洞回应', 'icon': 'fas fa-reply', 'url': 'wellness/treeholereply/'},
                 {'name': '危机预警', 'icon': 'fas fa-exclamation-triangle', 'url': 'wellness/crisisalert/'},
+                {'name': 'AI 倾听配置', 'icon': 'fas fa-robot', 'url': 'wellness/aichatconfig/'},
             ],
         },
         {

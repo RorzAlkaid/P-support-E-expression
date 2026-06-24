@@ -1,11 +1,16 @@
 import csv
 import io
+import json
+import os
 import re
 import zipfile
 from collections import Counter
 from datetime import timedelta
 from html import escape
+from urllib import error as urlerror
+from urllib import request as urlrequest
 
+from django.conf import settings
 from django.contrib.auth import authenticate, login, logout
 from django.contrib.auth.models import User
 from django.core.exceptions import ValidationError
@@ -21,6 +26,7 @@ from rest_framework.response import Response
 
 from .models import (
     AccountProfile,
+    AIChatConfig,
     Appointment,
     Article,
     AssessmentRecord,
@@ -55,6 +61,16 @@ from .serializers import (
 RISK_KEYWORDS = ['自伤', '自杀', '不想活', '结束生命', '伤害自己', '活不下去']
 PASSWORD_RULE = re.compile(r'^(?=.*[a-z])(?=.*[A-Z]).{8,}$')
 FOUR_DIGIT_YEAR_RULE = re.compile(r'^\d{4}$')
+MAX_AI_CHAT_MESSAGES = 12
+MAX_AI_CHAT_CONTENT_LENGTH = 1200
+AI_CHAT_CONFIG_PATH = settings.BASE_DIR / 'ai_chat_config.json'
+AI_CHAT_COMPLETION_PATH = '/chat/completions'
+AI_CHAT_SYSTEM_PROMPT = """
+你是大学生心理支持与情绪表达平台中的 AI 倾听助手。请用温和、尊重、简洁的中文回应学生。
+你的目标是陪伴、澄清感受、帮助学生做短时情绪调节，并在合适时鼓励寻求学校心理中心、辅导员或专业咨询师帮助。
+不要做医学诊断，不要承诺替代专业治疗。遇到自伤、自杀、伤害他人或现实紧急危险时，必须明确建议立刻联系身边可信任的人、学校心理中心、当地急救或紧急援助渠道。
+回复结构尽量包含：先接住情绪，再给出一到三个可执行的小步骤，最后用一个开放问题邀请继续表达。
+""".strip()
 
 
 class CsrfExemptSessionAuthentication(SessionAuthentication):
@@ -341,6 +357,238 @@ def create_alert_if_needed(student, trigger, text, level='warning'):
             trigger=trigger,
             handled=False,
         )
+
+
+def normalize_ai_messages(raw_messages):
+    if not isinstance(raw_messages, list):
+        return []
+
+    cleaned_messages = []
+    for item in raw_messages[-MAX_AI_CHAT_MESSAGES:]:
+        role = item.get('role') if isinstance(item, dict) else ''
+        content = item.get('content') if isinstance(item, dict) else ''
+        content = str(content or '').strip()
+        if role not in ['user', 'assistant'] or not content:
+            continue
+        cleaned_messages.append({
+            'role': role,
+            'content': content[:MAX_AI_CHAT_CONTENT_LENGTH],
+        })
+    return cleaned_messages
+
+
+def read_ai_chat_config():
+    if not AI_CHAT_CONFIG_PATH.exists():
+        return {}
+    try:
+        with AI_CHAT_CONFIG_PATH.open('r', encoding='utf-8') as config_file:
+            config = json.load(config_file)
+    except (OSError, json.JSONDecodeError):
+        return {}
+    return config if isinstance(config, dict) else {}
+
+
+def write_ai_chat_config(config):
+    api_url = AIChatConfig.normalize_api_url(config.get('api_url') or settings.AI_CHAT_API_URL)
+    provider = AIChatConfig.detect_provider(api_url)
+    model = normalize_ai_chat_model(config.get('model') or '', api_url)
+    defaults = {
+        'enabled': True,
+        'provider': provider,
+        'api_url': api_url,
+        'model': model,
+        'auto_detect_model': False,
+        'timeout': int(config.get('timeout') or settings.AI_CHAT_TIMEOUT),
+    }
+    if config.get('api_key'):
+        defaults['api_key'] = config['api_key']
+    AIChatConfig.objects.update_or_create(singleton_key=1, defaults=defaults)
+
+
+def masked_api_key(value):
+    value = str(value or '')
+    if not value:
+        return ''
+    if len(value) <= 8:
+        return '*' * len(value)
+    return f'{value[:4]}****{value[-4:]}'
+
+
+def normalize_ai_chat_api_url(api_url):
+    return AIChatConfig.normalize_api_url(api_url or settings.AI_CHAT_API_URL)
+
+
+def normalize_ai_chat_model(model, api_url):
+    value = str(model or '').strip()
+    provider = AIChatConfig.detect_provider(api_url)
+    if value.lower() == 'auto':
+        value = ''
+    if provider == AIChatConfig.PROVIDER_DEEPSEEK and value == 'deepseek-v4':
+        return AIChatConfig.default_model_for_provider(AIChatConfig.PROVIDER_DEEPSEEK)
+    return value or AIChatConfig.default_model_for_provider(provider)
+
+
+def effective_ai_chat_config():
+    file_config = read_ai_chat_config()
+    admin_config = AIChatConfig.objects.filter(enabled=True).order_by('-updated_at').first()
+    api_key = file_config.get('api_key') or settings.AI_CHAT_API_KEY or os.environ.get('OPENAI_API_KEY', '')
+    api_url = normalize_ai_chat_api_url(file_config.get('api_url') or settings.AI_CHAT_API_URL)
+    model = normalize_ai_chat_model(file_config.get('model') or settings.AI_CHAT_MODEL, api_url)
+    timeout = int(file_config.get('timeout') or settings.AI_CHAT_TIMEOUT)
+    provider = AIChatConfig.detect_provider(api_url)
+    source = 'page' if file_config.get('api_key') else ('env' if api_key else '')
+
+    if admin_config:
+        api_key = admin_config.api_key or api_key
+        api_url = normalize_ai_chat_api_url(admin_config.api_url)
+        provider = admin_config.effective_provider
+        model = admin_config.effective_model
+        timeout = int(admin_config.timeout or settings.AI_CHAT_TIMEOUT)
+        source = 'django_admin' if admin_config.api_key else source
+
+    return {
+        'api_key': api_key,
+        'api_url': api_url,
+        'model': model,
+        'timeout': timeout,
+        'source': source,
+        'provider': provider,
+        'provider_label': dict(AIChatConfig.PROVIDER_CHOICES).get(provider, '自定义兼容接口'),
+        'auto_detect_model': bool(admin_config.auto_detect_model) if admin_config else False,
+    }
+
+
+def serialize_ai_chat_config(config=None):
+    config = config or effective_ai_chat_config()
+    return {
+        'configured': bool(config.get('api_key')),
+        'api_key_masked': masked_api_key(config.get('api_key')),
+        'api_url': config.get('api_url') or settings.AI_CHAT_API_URL,
+        'model': config.get('model') or settings.AI_CHAT_MODEL,
+        'timeout': config.get('timeout') or settings.AI_CHAT_TIMEOUT,
+        'source': config.get('source') or '',
+        'provider': config.get('provider') or AIChatConfig.detect_provider(config.get('api_url')),
+        'provider_label': config.get('provider_label') or '',
+        'auto_detect_model': bool(config.get('auto_detect_model')),
+    }
+
+
+def call_ai_chat_completion(messages):
+    config = effective_ai_chat_config()
+    api_key = config['api_key']
+    if not api_key:
+        return None, 'AI 对话服务未配置 API Key，请联系管理员在 AI 倾听页面完成配置。'
+
+    payload = {
+        'model': config['model'],
+        'messages': [
+            {'role': 'system', 'content': AI_CHAT_SYSTEM_PROMPT},
+            *messages,
+        ],
+        'temperature': 0.7,
+        'max_tokens': 800,
+    }
+    data = json.dumps(payload).encode('utf-8')
+    request = urlrequest.Request(
+        config['api_url'],
+        data=data,
+        headers={
+            'Authorization': f'Bearer {api_key}',
+            'Content-Type': 'application/json',
+        },
+        method='POST',
+    )
+
+    try:
+        with urlrequest.urlopen(request, timeout=config['timeout']) as response:
+            result = json.loads(response.read().decode('utf-8'))
+    except urlerror.HTTPError as exc:
+        detail = exc.read().decode('utf-8', errors='ignore')[:500]
+        return None, f'AI 服务返回错误：{exc.code} {detail}'
+    except (urlerror.URLError, TimeoutError, json.JSONDecodeError) as exc:
+        return None, f'AI 服务连接失败：{exc}'
+
+    choices = result.get('choices') or []
+    answer = choices[0].get('message', {}).get('content') if choices else ''
+    answer = str(answer or '').strip()
+    if not answer:
+        return None, 'AI 服务没有返回有效内容，请稍后再试。'
+    return answer, ''
+
+
+@api_view(['GET', 'PATCH'])
+@authentication_classes([CsrfExemptSessionAuthentication])
+def ai_chat_config(request):
+    if user_role(request.user) != AccountProfile.ROLE_ADMIN:
+        return Response({'detail': '只有管理员可以配置 AI 对话 API Key。'}, status=status.HTTP_403_FORBIDDEN)
+
+    if request.method == 'GET':
+        return Response(serialize_ai_chat_config())
+
+    current_config = read_ai_chat_config()
+    api_url = (request.data.get('api_url') or settings.AI_CHAT_API_URL).strip()
+    model = (request.data.get('model') or settings.AI_CHAT_MODEL).strip()
+    timeout_value = request.data.get('timeout') or settings.AI_CHAT_TIMEOUT
+    api_key = (request.data.get('api_key') or '').strip()
+
+    try:
+        timeout_value = int(timeout_value)
+    except (TypeError, ValueError):
+        return Response({'detail': '超时时间必须是数字。'}, status=status.HTTP_400_BAD_REQUEST)
+
+    if not api_url.startswith(('http://', 'https://')):
+        return Response({'detail': 'API 地址必须以 http:// 或 https:// 开头。'}, status=status.HTTP_400_BAD_REQUEST)
+    api_url = normalize_ai_chat_api_url(api_url)
+    model = normalize_ai_chat_model(model, api_url)
+    if not model:
+        return Response({'detail': '请填写模型名称。'}, status=status.HTTP_400_BAD_REQUEST)
+    if timeout_value < 5 or timeout_value > 120:
+        return Response({'detail': '超时时间建议设置在 5 到 120 秒之间。'}, status=status.HTTP_400_BAD_REQUEST)
+
+    next_config = {
+        'api_url': api_url,
+        'model': model,
+        'timeout': timeout_value,
+    }
+    if api_key:
+        next_config['api_key'] = api_key
+    elif current_config.get('api_key'):
+        next_config['api_key'] = current_config['api_key']
+
+    write_ai_chat_config(next_config)
+    return Response({
+        'detail': 'AI 对话配置已保存。',
+        **serialize_ai_chat_config(),
+    })
+
+
+@api_view(['POST'])
+@authentication_classes([CsrfExemptSessionAuthentication])
+def ai_chat(request):
+    role = user_role(request.user)
+    if role not in [AccountProfile.ROLE_STUDENT, AccountProfile.ROLE_TEACHER, AccountProfile.ROLE_ADMIN]:
+        return Response({'detail': '请登录后再进入 AI 倾听对话。'}, status=status.HTTP_403_FORBIDDEN)
+
+    messages = normalize_ai_messages(request.data.get('messages'))
+    if not messages or messages[-1]['role'] != 'user':
+        return Response({'detail': '请先输入想和 AI 倾听助手交流的内容。'}, status=status.HTTP_400_BAD_REQUEST)
+
+    latest_text = messages[-1]['content']
+    risk_detected = contains_risk_text(latest_text)
+    if risk_detected:
+        student = get_request_student(request) if role == AccountProfile.ROLE_STUDENT else None
+        create_alert_if_needed(student, 'AI 倾听对话中出现高风险表达', latest_text, 'critical')
+
+    answer, error_message = call_ai_chat_completion(messages)
+    if error_message:
+        return Response({'detail': error_message}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+
+    return Response({
+        'reply': answer,
+        'model': effective_ai_chat_config()['model'],
+        'risk_detected': risk_detected,
+        'created_at': timezone.localtime().isoformat(),
+    })
 
 
 @api_view(['GET'])

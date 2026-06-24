@@ -31,6 +31,107 @@ class AccountProfile(TimeStampedModel):
         return f'{self.user.username} - {self.get_role_display()}'
 
 
+class AIChatConfig(TimeStampedModel):
+    PROVIDER_AUTO = 'auto'
+    PROVIDER_OPENAI = 'openai'
+    PROVIDER_DEEPSEEK = 'deepseek'
+    PROVIDER_CUSTOM = 'custom'
+    PROVIDER_CHOICES = [
+        (PROVIDER_AUTO, '自动检测'),
+        (PROVIDER_OPENAI, 'OpenAI'),
+        (PROVIDER_DEEPSEEK, 'DeepSeek'),
+        (PROVIDER_CUSTOM, '自定义兼容接口'),
+    ]
+    COMPLETION_PATH = '/chat/completions'
+    DEFAULT_API_URL = 'https://api.openai.com/v1/chat/completions'
+    DEFAULT_MODELS = {
+        PROVIDER_OPENAI: 'gpt-4o-mini',
+        PROVIDER_DEEPSEEK: 'deepseek-v4-flash',
+        PROVIDER_CUSTOM: 'gpt-4o-mini',
+    }
+
+    singleton_key = models.PositiveSmallIntegerField(default=1, unique=True, editable=False, verbose_name='配置编号')
+    enabled = models.BooleanField(default=True, verbose_name='启用 AI 倾听')
+    provider = models.CharField(max_length=20, choices=PROVIDER_CHOICES, default=PROVIDER_AUTO, verbose_name='服务商')
+    api_key = models.CharField(max_length=255, blank=True, verbose_name='API Key')
+    api_url = models.URLField(default=DEFAULT_API_URL, verbose_name='API 地址')
+    model = models.CharField(max_length=80, blank=True, verbose_name='模型')
+    auto_detect_model = models.BooleanField(default=True, verbose_name='自动检测并选择模型')
+    timeout = models.PositiveSmallIntegerField(default=30, verbose_name='超时秒数')
+
+    class Meta:
+        verbose_name = 'AI 倾听配置'
+        verbose_name_plural = 'AI 倾听配置'
+
+    def __str__(self):
+        return f'AI 倾听配置 - {self.get_effective_provider_display()} / {self.effective_model}'
+
+    @classmethod
+    def normalize_api_url(cls, api_url):
+        value = str(api_url or '').strip().rstrip('/')
+        if not value:
+            return cls.DEFAULT_API_URL
+        if value.endswith(cls.COMPLETION_PATH):
+            return value
+        if value.startswith('https://api.deepseek.com/anthropic'):
+            return f'https://api.deepseek.com{cls.COMPLETION_PATH}'
+        if value in ['https://api.deepseek.com', 'https://api.deepseek.com/v1']:
+            return f'{value}{cls.COMPLETION_PATH}'
+        if value in ['https://api.openai.com', 'https://api.openai.com/v1']:
+            return f'{value}{cls.COMPLETION_PATH}'
+        return value
+
+    @classmethod
+    def detect_provider(cls, api_url):
+        value = str(api_url or '').lower()
+        if 'api.deepseek.com' in value:
+            return cls.PROVIDER_DEEPSEEK
+        if 'api.openai.com' in value:
+            return cls.PROVIDER_OPENAI
+        return cls.PROVIDER_CUSTOM
+
+    @classmethod
+    def default_model_for_provider(cls, provider):
+        return cls.DEFAULT_MODELS.get(provider) or cls.DEFAULT_MODELS[cls.PROVIDER_CUSTOM]
+
+    @property
+    def effective_provider(self):
+        if self.provider == self.PROVIDER_AUTO:
+            return self.detect_provider(self.api_url)
+        return self.provider
+
+    def get_effective_provider_display(self):
+        labels = dict(self.PROVIDER_CHOICES)
+        return labels.get(self.effective_provider, '自定义兼容接口')
+
+    @property
+    def effective_model(self):
+        if self.auto_detect_model or not self.model:
+            return self.default_model_for_provider(self.effective_provider)
+        if self.effective_provider == self.PROVIDER_DEEPSEEK and self.model == 'deepseek-v4':
+            return self.default_model_for_provider(self.PROVIDER_DEEPSEEK)
+        return self.model
+
+    @property
+    def masked_api_key(self):
+        if not self.api_key:
+            return ''
+        if len(self.api_key) <= 8:
+            return '*' * len(self.api_key)
+        return f'{self.api_key[:4]}****{self.api_key[-4:]}'
+
+    def save(self, *args, **kwargs):
+        self.singleton_key = 1
+        self.api_url = self.normalize_api_url(self.api_url)
+        if self.provider == self.PROVIDER_AUTO:
+            self.provider = self.detect_provider(self.api_url)
+        if self.auto_detect_model or not self.model:
+            self.model = self.default_model_for_provider(self.effective_provider)
+        elif self.effective_provider == self.PROVIDER_DEEPSEEK and self.model == 'deepseek-v4':
+            self.model = self.default_model_for_provider(self.PROVIDER_DEEPSEEK)
+        super().save(*args, **kwargs)
+
+
 class StudentProfile(TimeStampedModel):
     user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='student_profile', verbose_name='用户')
     student_no = models.CharField(max_length=50, unique=True, verbose_name='学号')

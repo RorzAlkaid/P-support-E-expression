@@ -42,11 +42,54 @@ const authSubmitting = ref(false)
 const authMessage = ref('')
 const moduleData = ref(null)
 const moduleMessage = ref('')
+const aiChatInput = ref('')
+const aiChatSending = ref(false)
+const aiChatMessage = ref('')
+const aiChatWindowRef = ref(null)
+const aiSpeechSupported = ref(false)
+const aiSpeechListening = ref(false)
+const aiSpeechMessage = ref('')
+const aiConfigLoading = ref(false)
+const aiConfigSaving = ref(false)
+const aiConfigMessage = ref('')
+const aiConfigForm = ref({
+  provider: 'openai',
+  api_key: '',
+  api_key_masked: '',
+  api_url: 'https://api.openai.com/v1/chat/completions',
+  model: 'gpt-4o-mini',
+  timeout: 30,
+  configured: false,
+  source: '',
+})
+const aiChatMessages = ref([
+  {
+    role: 'assistant',
+    content: '你好，我是平台里的 AI 倾听助手。你可以把此刻的压力、情绪或困扰告诉我，我们先一起把它慢慢理清。',
+  },
+])
+
+const aiProviderPresets = [
+  {
+    id: 'openai',
+    name: 'OpenAI',
+    api_url: 'https://api.openai.com/v1/chat/completions',
+    model: 'gpt-4o-mini',
+  },
+  {
+    id: 'deepseek',
+    name: 'DeepSeek',
+    api_url: 'https://api.deepseek.com/chat/completions',
+    model: 'deepseek-v4-flash',
+  },
+]
 const heartWallVisible = ref(false)
 const heartWallKey = ref(0)
 let heartWallTimer = null
 let scrollMotionFrame = null
 let pendingFullPageReload = false
+let aiSpeechRecognition = null
+let aiSpeechSilenceTimer = null
 const selectedAlertDetail = ref(null)
 const alertDetailLoading = ref(false)
 const alertDetailMessage = ref('')
@@ -123,6 +166,7 @@ const pageTitles = {
   profile: '个人资料',
   details: '平台详情',
   article: '文章详情',
+  'ai-chat': 'AI 倾听对话',
   mood: '情绪打卡',
   treehole: '匿名树洞',
   assessment: '心理测评',
@@ -141,6 +185,7 @@ const pageAccessRules = {
   appointment: { roles: ['student', 'teacher', 'admin'], loginRequired: true, label: '咨询预约' },
   resources: { roles: ['student', 'teacher', 'admin'], loginRequired: true, label: '心理资源' },
   article: { roles: ['student', 'teacher', 'admin'], loginRequired: true, label: '文章详情' },
+  'ai-chat': { roles: ['student', 'teacher', 'admin'], loginRequired: true, label: 'AI 倾听对话' },
   insights: { roles: ['student', 'teacher', 'admin'], loginRequired: true, label: '数据洞察' },
   alerts: { roles: ['teacher', 'admin'], loginRequired: true, label: '预警管理' },
   'alert-detail': { roles: ['teacher', 'admin'], loginRequired: true, label: '预警学生详情' },
@@ -160,6 +205,13 @@ const moduleIntros = [
     stat: '匿名表达',
     text: '为学生提供低压力表达入口，支持匿名发布、同伴回应和高风险内容提醒。',
     points: ['匿名发布', '温和回应', '风险标记'],
+  },
+  {
+    page: 'ai-chat',
+    title: 'AI 倾听对话',
+    stat: '实时陪伴',
+    text: '接入大模型对话能力，帮助学生在压力、焦虑或低落时获得即时倾听、情绪梳理和自助建议。',
+    points: ['即时对话', '情绪疏导', '风险提醒'],
   },
   {
     page: 'assessment',
@@ -245,6 +297,7 @@ const moduleDetails = [
 const currentRole = computed(() => currentUser.value?.role || 'guest')
 const minAppointmentDateTime = computed(() => formatDateTimeInput(new Date()))
 const canWrite = computed(() => ['student', 'admin'].includes(currentRole.value))
+const canUseAiChat = computed(() => ['student', 'teacher', 'admin'].includes(currentRole.value))
 const canManage = computed(() => currentRole.value === 'admin')
 const canViewAlerts = computed(() => ['teacher', 'admin'].includes(currentRole.value))
 const canViewInsights = computed(() => true)
@@ -397,6 +450,9 @@ function navigate(page) {
   if (page === 'insights') {
     loadInsights()
   }
+  if (page === 'ai-chat' && currentRole.value === 'admin') {
+    loadAiChatConfig()
+  }
 }
 
 async function openArticle(article) {
@@ -519,6 +575,9 @@ async function loadCurrentUser() {
     }
     if (currentPage.value === 'insights') {
       await loadInsights()
+    }
+    if (currentPage.value === 'ai-chat' && currentRole.value === 'admin') {
+      await loadAiChatConfig()
     }
   } catch (error) {
     currentUser.value = null
@@ -684,6 +743,7 @@ watch([currentPage, moodTrend, pressureData, insightData, currentUser], async ()
 
 onMounted(() => {
   handleScroll()
+  setupAiSpeechRecognition()
   loadBackendData()
   loadCurrentUser()
   window.addEventListener('pointermove', handlePointerMove)
@@ -713,6 +773,7 @@ onMounted(() => {
 })
 
 onUnmounted(() => {
+  stopAiSpeechInput()
   window.removeEventListener('pointermove', handlePointerMove)
   window.removeEventListener('scroll', handleScroll)
   window.removeEventListener('resize', scheduleRenderCharts)
@@ -727,6 +788,7 @@ onUnmounted(() => {
 
 const features = [
   {
+    page: 'mood',
     title: '情绪打卡',
     subtitle: '记录每天的心情变化',
     desc: '用表情、强度和影响因素记录每天的状态，形成连续的情绪轨迹。',
@@ -735,6 +797,7 @@ const features = [
     detail: '支持心情标签、压力来源、睡眠状态和简短日记，自动生成近一周趋势，让学生更早看见自己的变化。',
   },
   {
+    page: 'treehole',
     title: '匿名树洞',
     subtitle: '把难说出口的烦恼放下来',
     desc: '把难以开口的困扰安全表达出来，获得同伴温和回应与支持。',
@@ -743,6 +806,16 @@ const features = [
     detail: '发布内容默认匿名，结合关键词提醒与温和引导，帮助学生在被理解的氛围里表达压力、关系和成长困惑。',
   },
   {
+    page: 'ai-chat',
+    title: 'AI 倾听',
+    subtitle: '把此刻的压力慢慢说清',
+    desc: '游客可以查看示例，学生登录后可进入对话，把压力、情绪或困扰写下来。',
+    stat: '即时陪伴',
+    accent: 'rose',
+    detail: '接入 AI 倾听助手，提供温和回应、情绪梳理和短时可执行建议，同时保留真人支持提醒。',
+  },
+  {
+    page: 'assessment',
     title: '心理测评',
     subtitle: '自助了解压力与风险信号',
     desc: '提供压力、睡眠、情绪等自评问卷，结果只作风险提示与资源推荐。',
@@ -751,6 +824,7 @@ const features = [
     detail: '测评结果以非诊断方式呈现，提供分层建议、资源链接和后续跟进入口，避免给学生制造额外负担。',
   },
   {
+    page: 'appointment',
     title: '咨询预约',
     subtitle: '让正式求助更容易开始',
     desc: '查看心理老师时间、擅长方向与预约状态，减少求助过程中的心理负担。',
@@ -783,6 +857,25 @@ const steps = [
   '系统形成趋势、标签和风险提示',
   '推荐自助资源或发起咨询预约',
   '心理老师处理预警并持续回访',
+]
+
+const aiListeningFeatures = [
+  {
+    title: '温和对话陪伴',
+    text: '梳理压力与情绪。',
+  },
+  {
+    title: '语音转文字输入',
+    text: '把语音转成文字。',
+  },
+  {
+    title: '风险表达提醒',
+    text: '识别高风险表达。',
+  },
+  {
+    title: '短时调节建议',
+    text: '给出可执行建议。',
+  },
 ]
 
 function charLength(value) {
@@ -859,6 +952,9 @@ async function submitAuth() {
     authMessage.value = response.data.detail || '操作成功'
     showAuth.value = false
     await refreshModules()
+    if (currentPage.value === 'ai-chat' && currentRole.value === 'admin') {
+      await loadAiChatConfig()
+    }
   } catch (error) {
     authMessage.value = error.response?.data?.detail || '操作失败，请检查输入后重试。'
   } finally {
@@ -1072,6 +1168,212 @@ async function submitAppointment() {
   } catch (error) {
     moduleMessage.value = error.response?.data?.detail || '预约提交失败，请检查时间和内容后重试。'
   }
+}
+
+function scrollAiChatToBottom() {
+  nextTick(() => {
+    if (aiChatWindowRef.value) {
+      aiChatWindowRef.value.scrollTop = aiChatWindowRef.value.scrollHeight
+    }
+  })
+}
+
+function appendAiSpeechText(text) {
+  const value = String(text || '').trim()
+  if (!value) return
+  aiChatInput.value = `${aiChatInput.value}${aiChatInput.value.trim() ? '\n' : ''}${value}`
+}
+
+function clearAiSpeechSilenceTimer() {
+  window.clearTimeout(aiSpeechSilenceTimer)
+  aiSpeechSilenceTimer = null
+}
+
+function startAiSpeechSilenceTimer() {
+  clearAiSpeechSilenceTimer()
+  aiSpeechSilenceTimer = window.setTimeout(() => {
+    if (aiSpeechListening.value && aiSpeechRecognition) {
+      aiSpeechMessage.value = '5 秒内未检测到声音，已自动停止。'
+      aiSpeechRecognition.stop()
+    }
+  }, 5000)
+}
+
+function setupAiSpeechRecognition() {
+  const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition
+  aiSpeechSupported.value = Boolean(SpeechRecognition)
+  if (!SpeechRecognition) {
+    aiSpeechMessage.value = '当前浏览器不支持语音转文字。'
+    return
+  }
+
+  aiSpeechRecognition = new SpeechRecognition()
+  aiSpeechRecognition.lang = 'zh-CN'
+  aiSpeechRecognition.continuous = false
+  aiSpeechRecognition.interimResults = true
+
+  aiSpeechRecognition.onstart = () => {
+    aiSpeechListening.value = true
+    aiSpeechMessage.value = '正在聆听，5 秒内没有声音将自动停止...'
+    startAiSpeechSilenceTimer()
+  }
+  aiSpeechRecognition.onend = () => {
+    aiSpeechListening.value = false
+    clearAiSpeechSilenceTimer()
+    if (aiSpeechMessage.value === '正在聆听，5 秒内没有声音将自动停止...') {
+      aiSpeechMessage.value = ''
+    }
+  }
+  aiSpeechRecognition.onsoundstart = clearAiSpeechSilenceTimer
+  aiSpeechRecognition.onspeechstart = clearAiSpeechSilenceTimer
+  aiSpeechRecognition.onerror = (event) => {
+    aiSpeechListening.value = false
+    clearAiSpeechSilenceTimer()
+    aiSpeechMessage.value = event.error === 'not-allowed' ? '浏览器未允许麦克风权限。' : '语音识别暂时不可用。'
+  }
+  aiSpeechRecognition.onresult = (event) => {
+    clearAiSpeechSilenceTimer()
+    let finalText = ''
+    let interimText = ''
+    for (let index = event.resultIndex; index < event.results.length; index += 1) {
+      const text = event.results[index][0]?.transcript || ''
+      if (event.results[index].isFinal) {
+        finalText += text
+      } else {
+        interimText += text
+      }
+    }
+    if (finalText.trim()) {
+      appendAiSpeechText(finalText)
+      aiSpeechMessage.value = '已转写到输入框。'
+    } else if (interimText.trim()) {
+      aiSpeechMessage.value = `识别中：${interimText.trim()}`
+    }
+  }
+}
+
+function toggleAiSpeechInput() {
+  if (!aiSpeechSupported.value || !aiSpeechRecognition) {
+    aiSpeechMessage.value = '当前浏览器不支持语音转文字。'
+    return
+  }
+  if (aiSpeechListening.value) {
+    aiSpeechRecognition.stop()
+    return
+  }
+  try {
+    aiSpeechRecognition.start()
+  } catch (error) {
+    aiSpeechMessage.value = '语音识别启动失败，请稍后再试。'
+  }
+}
+
+function stopAiSpeechInput() {
+  clearAiSpeechSilenceTimer()
+  if (aiSpeechRecognition && aiSpeechListening.value) {
+    aiSpeechRecognition.stop()
+  }
+}
+
+function syncAiConfigForm(data) {
+  const nextUrl = data.api_url || 'https://api.openai.com/v1/chat/completions'
+  aiConfigForm.value.api_key = ''
+  aiConfigForm.value.api_key_masked = data.api_key_masked || ''
+  aiConfigForm.value.api_url = nextUrl
+  aiConfigForm.value.model = data.model || 'gpt-4o-mini'
+  aiConfigForm.value.timeout = data.timeout || 30
+  aiConfigForm.value.configured = Boolean(data.configured)
+  aiConfigForm.value.source = data.source || ''
+  aiConfigForm.value.provider = nextUrl.includes('api.deepseek.com') ? 'deepseek' : 'openai'
+}
+
+function selectAiProvider(providerId) {
+  const preset = aiProviderPresets.find((item) => item.id === providerId)
+  if (!preset) return
+  aiConfigForm.value.provider = preset.id
+  aiConfigForm.value.api_url = preset.api_url
+  aiConfigForm.value.model = preset.model
+}
+
+async function loadAiChatConfig() {
+  if (currentRole.value !== 'admin') return
+  aiConfigLoading.value = true
+  aiConfigMessage.value = ''
+  try {
+    const response = await axios.get('/api/ai-chat/config/')
+    syncAiConfigForm(response.data)
+  } catch (error) {
+    aiConfigMessage.value = error.response?.data?.detail || 'AI 配置加载失败。'
+  } finally {
+    aiConfigLoading.value = false
+  }
+}
+
+async function saveAiChatConfig() {
+  if (currentRole.value !== 'admin') return
+  aiConfigSaving.value = true
+  aiConfigMessage.value = ''
+  try {
+    const response = await axios.patch('/api/ai-chat/config/', {
+      api_key: aiConfigForm.value.api_key,
+      api_url: aiConfigForm.value.api_url,
+      model: aiConfigForm.value.model,
+      timeout: aiConfigForm.value.timeout,
+    })
+    syncAiConfigForm(response.data)
+    aiConfigMessage.value = response.data.detail || 'AI 对话配置已保存。'
+  } catch (error) {
+    aiConfigMessage.value = error.response?.data?.detail || 'AI 配置保存失败，请检查地址、模型和 Key。'
+  } finally {
+    aiConfigSaving.value = false
+  }
+}
+
+async function sendAiChatMessage() {
+  const content = aiChatInput.value.trim()
+  if (!content || aiChatSending.value) return
+  if (!canUseAiChat.value) {
+    aiChatMessage.value = '请登录后再进入 AI 倾听对话。'
+    return
+  }
+
+  aiChatMessage.value = ''
+  aiChatInput.value = ''
+  aiChatMessages.value.push({ role: 'user', content })
+  aiChatSending.value = true
+  scrollAiChatToBottom()
+
+  try {
+    const payloadMessages = aiChatMessages.value
+      .slice(-12)
+      .map((item) => ({ role: item.role, content: item.content }))
+    const response = await axios.post('/api/ai-chat/', { messages: payloadMessages })
+    aiChatMessages.value.push({ role: 'assistant', content: response.data.reply })
+    if (response.data.risk_detected) {
+      aiChatMessage.value = '平台已识别到高风险表达，建议同时联系学校心理中心、辅导员或身边可信任的人。'
+    }
+  } catch (error) {
+    aiChatMessages.value.push({
+      role: 'assistant',
+      content: error.response?.data?.detail || 'AI 倾听服务暂时不可用，请稍后再试。',
+    })
+  } finally {
+    aiChatSending.value = false
+    scrollAiChatToBottom()
+  }
+}
+
+function clearAiChat() {
+  aiChatInput.value = ''
+  aiChatMessage.value = ''
+  stopAiSpeechInput()
+  aiChatMessages.value = [
+    {
+      role: 'assistant',
+      content: '新的对话已经开始。你可以继续说说现在最困扰你的事情。',
+    },
+  ]
+  scrollAiChatToBottom()
 }
 
 async function submitTeacherProfile() {
@@ -1355,11 +1657,23 @@ async function editAlert(alert) {
         <a href="#/home" @click.prevent="navigate('home')">首页</a>
         <a href="#/mood" @click.prevent="navigate('mood')">情绪打卡</a>
         <a href="#/treehole" @click.prevent="navigate('treehole')">匿名树洞</a>
+        <a
+          href="#/ai-chat"
+          :aria-disabled="!authReady"
+          @click.prevent="authReady && navigate('ai-chat')"
+        >AI 倾听</a>
         <a href="#/assessment" @click.prevent="navigate('assessment')">心理测评</a>
         <a href="#/appointment" @click.prevent="navigate('appointment')">咨询预约</a>
         <a href="#/insights" @click.prevent="navigate('insights')">数据洞察</a>
         <a href="#/resources" @click.prevent="navigate('resources')">心理资源</a>
-        <a v-if="canViewAlerts" class="alert-nav-link" href="#/alerts" @click.prevent="navigate('alerts')">预警管理</a>
+        <a
+          v-if="!authReady || canViewAlerts"
+          :class="['alert-nav-link', { 'nav-placeholder': !authReady || !canViewAlerts }]"
+          :aria-hidden="!authReady || !canViewAlerts"
+          :tabindex="!authReady || !canViewAlerts ? -1 : 0"
+          href="#/alerts"
+          @click.prevent="authReady && canViewAlerts && navigate('alerts')"
+        >预警管理</a>
       </nav>
 
       <div :class="['auth-actions', { ready: authReady }]">
@@ -1427,7 +1741,8 @@ async function editAlert(alert) {
             :class="['feature-card', 'scroll-converge', feature.accent]"
             v-bind="motionAttrs(index, features.length, 120)"
             tabindex="0"
-            @click="navigate(['mood', 'treehole', 'assessment', 'appointment'][index])"
+            @click="navigate(feature.page)"
+            @keydown.enter="navigate(feature.page)"
           >
             <span class="feature-stat">{{ feature.stat }}</span>
             <h3>{{ feature.title }}</h3>
@@ -1467,6 +1782,54 @@ async function editAlert(alert) {
           <div v-for="(step, index) in steps" :key="step" class="process-step scroll-converge" v-bind="motionAttrs(index, steps.length, 110)">
             <span>{{ String(index + 1).padStart(2, '0') }}</span>
             <p>{{ step }}</p>
+          </div>
+        </div>
+      </section>
+
+      <section id="ai-listening" class="section ai-showcase-section scroll-follow follow-medium">
+        <div class="section-heading align-left wide-heading">
+          <span class="eyebrow">AI 倾听</span>
+          <h2>在正式求助前，先把感受说出来</h2>
+          <p>AI 倾听面向学生和心理老师开放，提供低压力的即时对话入口。游客可在首页了解功能，进入对话前需要登录。</p>
+        </div>
+
+        <div class="ai-showcase-panel scroll-converge" v-bind="motionAttrs(0, 1, 108)">
+          <div class="ai-showcase-bg" aria-hidden="true">
+            <article v-for="(item, index) in aiListeningFeatures" :key="item.title">
+              <span>{{ String(index + 1).padStart(2, '0') }}</span>
+              <strong>{{ item.title }}</strong>
+              <p>{{ item.text }}</p>
+            </article>
+          </div>
+
+          <div class="ai-showcase-chat-preview" aria-label="AI 倾听聊天展示">
+            <div class="ai-showcase-chat-head">
+              <span>当前对话</span>
+              <strong>浏览展示</strong>
+            </div>
+            <div class="ai-showcase-bubble assistant">
+              <span>AI</span>
+              <p>你好，我是平台里的 AI 倾听助手。你可以把此刻的压力、情绪或困扰告诉我，我们先一起把它慢慢理清。</p>
+            </div>
+            <div class="ai-showcase-bubble user">
+              <span>我</span>
+              <p>最近压力很大，晚上总是睡不着。</p>
+            </div>
+            <div class="ai-showcase-bubble assistant">
+              <span>AI</span>
+              <p>我们先把压力来源分开看。你可以先写下最影响睡眠的一件事，再试一次 3 分钟呼吸放松。</p>
+            </div>
+            <div class="ai-showcase-divider" aria-hidden="true"><span></span><strong></strong><span></span></div>
+            <div class="ai-showcase-input-preview" aria-hidden="true">
+              <div class="ai-showcase-textarea">写下你现在的感受、压力来源或想聊的事情</div>
+              <svg class="ai-showcase-mic" viewBox="0 0 24 24" focusable="false">
+                <path d="M12 14.5a4 4 0 0 0 4-4V6a4 4 0 0 0-8 0v4.5a4 4 0 0 0 4 4Z" />
+                <path d="M5 10.5a7 7 0 0 0 14 0" />
+                <path d="M12 17.5V21" />
+                <path d="M8.5 21h7" />
+              </svg>
+              <span>发送</span>
+            </div>
           </div>
         </div>
       </section>
@@ -1578,7 +1941,7 @@ async function editAlert(alert) {
           <article
             v-for="(intro, index) in moduleIntros"
             :key="intro.page"
-            class="module-intro-card scroll-converge"
+            :class="['module-intro-card', 'scroll-converge', { 'alert-priority': intro.page === 'alerts' }]"
             v-bind="motionAttrs(index, moduleIntros.length, 104)"
             tabindex="0"
             @click="navigate(intro.page)"
@@ -1615,7 +1978,7 @@ async function editAlert(alert) {
     </main>
 
     <main v-else class="standalone-page">
-      <section class="page-hero">
+      <section v-if="currentPage !== 'ai-chat'" class="page-hero">
         <button class="text-button" type="button" @click="navigate('home')">返回首页</button>
         <span class="eyebrow">{{ pageTitles[currentPage] }}</span>
         <h1>{{ pageTitles[currentPage] }}</h1>
@@ -1802,6 +2165,122 @@ async function editAlert(alert) {
             <button class="solid-button large" type="submit">保存资料</button>
           </div>
         </form>
+      </section>
+
+      <section v-if="currentPage === 'ai-chat'" class="ai-chat-page module-panel page-panel">
+        <div class="ai-chat-layout">
+          <aside class="ai-chat-side">
+            <div class="ai-companion-card">
+              <div class="ai-signal-mark" aria-hidden="true">
+                <i></i>
+                <i></i>
+                <i></i>
+              </div>
+              <span class="eyebrow">实时陪伴</span>
+              <h2>心晴正在倾听</h2>
+              <p>说出此刻最明显的感受，平台会用温和的方式陪你梳理压力，并给出短时可执行的调节建议。</p>
+            </div>
+
+            <form v-if="currentRole === 'admin'" class="ai-config-panel" @submit.prevent="saveAiChatConfig">
+              <div class="ai-config-head">
+                <strong>管理员配置 API Key</strong>
+                <span>{{ aiConfigForm.configured ? `已配置：${aiConfigForm.api_key_masked}` : '尚未配置' }}</span>
+              </div>
+              <label>API Key
+                <input v-model.trim="aiConfigForm.api_key" type="password" autocomplete="off" placeholder="输入新的 API Key；留空则保留原 Key" />
+              </label>
+              <div class="ai-provider-tabs" aria-label="AI 服务商预设">
+                <button
+                  v-for="preset in aiProviderPresets"
+                  :key="preset.id"
+                  :class="{ active: aiConfigForm.provider === preset.id }"
+                  type="button"
+                  @click="selectAiProvider(preset.id)"
+                >
+                  {{ preset.name }}
+                </button>
+              </div>
+              <label>API 地址
+                <input v-model.trim="aiConfigForm.api_url" placeholder="https://api.openai.com/v1/chat/completions" />
+              </label>
+              <p class="ai-config-hint">当前接口使用 OpenAI Chat Completions 格式。DeepSeek 请使用 /chat/completions，不要填写 /anthropic。</p>
+              <div class="ai-config-row">
+                <label>模型
+                  <input v-model.trim="aiConfigForm.model" placeholder="gpt-4o-mini" />
+                </label>
+                <label>超时秒数
+                  <input v-model.number="aiConfigForm.timeout" type="number" min="5" max="120" />
+                </label>
+              </div>
+              <p v-if="aiConfigMessage" class="ai-config-message">{{ aiConfigMessage }}</p>
+              <button class="solid-button" type="submit" :disabled="aiConfigSaving || aiConfigLoading">
+                {{ aiConfigSaving ? '保存中...' : '保存配置' }}
+              </button>
+            </form>
+          </aside>
+
+          <section class="ai-chat-box" aria-label="AI 倾听对话窗口">
+            <div class="ai-chat-toolbar">
+              <span>当前对话</span>
+              <button class="outline-button" type="button" @click="clearAiChat">新对话</button>
+            </div>
+            <div class="ai-chat-support">
+              <strong>必要时优先联系真人支持</strong>
+              <span>如有自伤、自杀、被伤害或伤害他人的紧急风险，请立刻联系学校心理中心、辅导员、身边可信任的人或当地紧急援助渠道。</span>
+            </div>
+            <div class="ai-chat-dialog-shell">
+              <div ref="aiChatWindowRef" class="ai-chat-messages">
+                <article
+                  v-for="(message, index) in aiChatMessages"
+                  :key="`${message.role}-${index}`"
+                  :class="['ai-chat-bubble', message.role]"
+                >
+                  <span>{{ message.role === 'user' ? '我' : 'AI' }}</span>
+                  <p>{{ message.content }}</p>
+                </article>
+                <article v-if="aiChatSending" class="ai-chat-bubble assistant pending">
+                  <span>心晴</span>
+                  <p>
+                    心晴正在整理回应
+                    <span class="typing-dots" aria-hidden="true"><i></i><i></i><i></i></span>
+                  </p>
+                </article>
+              </div>
+
+              <p v-if="aiChatMessage" class="module-message ai-chat-alert">{{ aiChatMessage }}</p>
+              <div v-if="canUseAiChat" class="ai-chat-divider" aria-hidden="true"><span></span><strong></strong><span></span></div>
+              <form v-if="canUseAiChat" class="ai-chat-composer" @submit.prevent="sendAiChatMessage">
+                <textarea
+                  v-model="aiChatInput"
+                  maxlength="1200"
+                  placeholder="写下你现在的感受、压力来源或想聊的事情"
+                  @keydown.enter.exact.prevent="sendAiChatMessage"
+                ></textarea>
+                <div class="ai-voice-tools">
+                  <button
+                    :class="['ai-voice-button', { active: aiSpeechListening }]"
+                    type="button"
+                    :aria-label="aiSpeechListening ? '停止语音转文字' : '语音转文字'"
+                    :title="aiSpeechListening ? '停止语音转文字' : '语音转文字'"
+                    :aria-pressed="aiSpeechListening"
+                    :disabled="aiChatSending || !aiSpeechSupported"
+                    @click="toggleAiSpeechInput"
+                  >
+                    <svg class="ai-voice-icon" aria-hidden="true" viewBox="0 0 24 24" focusable="false">
+                      <path d="M12 14.5a4 4 0 0 0 4-4V6a4 4 0 0 0-8 0v4.5a4 4 0 0 0 4 4Z" />
+                      <path d="M5 10.5a7 7 0 0 0 14 0" />
+                      <path d="M12 17.5V21" />
+                      <path d="M8.5 21h7" />
+                    </svg>
+                  </button>
+                </div>
+                <button class="solid-button large" type="submit" :disabled="aiChatSending || !aiChatInput.trim()">
+                  {{ aiChatSending ? '发送中...' : '发送' }}
+                </button>
+              </form>
+            </div>
+          </section>
+        </div>
       </section>
 
       <section v-if="currentPage === 'details'" class="detail-page">

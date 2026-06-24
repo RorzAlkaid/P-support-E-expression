@@ -1,7 +1,9 @@
+from django import forms
 from django.contrib import admin
 
 from .models import (
     AccountProfile,
+    AIChatConfig,
     Appointment,
     Article,
     AssessmentRecord,
@@ -20,6 +22,108 @@ from .models import (
 admin.site.site_header = '大学生心理支持与情绪表达平台后台管理'
 admin.site.site_title = '心理支持平台后台'
 admin.site.index_title = '数据管理中心'
+
+
+class AIChatConfigAdminForm(forms.ModelForm):
+    api_key = forms.CharField(
+        label='API Key',
+        required=False,
+        widget=forms.PasswordInput(render_value=False),
+        help_text='新增或更换 Key 时填写；编辑已有配置时留空会保留原 Key。',
+    )
+
+    class Meta:
+        model = AIChatConfig
+        fields = '__all__'
+
+    def clean_api_key(self):
+        value = self.cleaned_data.get('api_key', '').strip()
+        if value:
+            return value
+        if self.instance and self.instance.pk:
+            return self.instance.api_key
+        return ''
+
+
+@admin.register(AIChatConfig)
+class AIChatConfigAdmin(admin.ModelAdmin):
+    form = AIChatConfigAdminForm
+    list_display = (
+        'enabled',
+        'configured_status',
+        'provider_summary',
+        'api_url',
+        'model',
+        'timeout',
+        'auto_detect_model',
+        'updated_at',
+    )
+    readonly_fields = (
+        'configured_status',
+        'api_key_masked',
+        'provider_summary',
+        'effective_model_preview',
+        'normalized_api_url_preview',
+        'created_at',
+        'updated_at',
+    )
+    fieldsets = (
+        ('运行状态', {
+            'fields': (
+                'enabled',
+                'configured_status',
+                'api_key_masked',
+                'provider_summary',
+                'effective_model_preview',
+                'normalized_api_url_preview',
+            )
+        }),
+        ('连接配置', {
+            'fields': (
+                'provider',
+                'api_key',
+                'api_url',
+                'auto_detect_model',
+                'model',
+                'timeout',
+            ),
+            'description': '服务商选择“自动检测”时，后台会根据 API 地址识别 OpenAI、DeepSeek 或自定义兼容接口；启用自动检测模型时会自动填入该服务商的默认模型。',
+        }),
+        ('记录时间', {
+            'fields': ('created_at', 'updated_at'),
+        }),
+    )
+
+    def has_add_permission(self, request):
+        if AIChatConfig.objects.exists():
+            return False
+        return super().has_add_permission(request)
+
+    @admin.display(description='配置状态')
+    def configured_status(self, obj):
+        if not obj:
+            return '未保存'
+        if not obj.enabled:
+            return '已停用'
+        return '已配置 API Key' if obj.api_key else '未配置 API Key'
+
+    @admin.display(description='脱敏 API Key')
+    def api_key_masked(self, obj):
+        return obj.masked_api_key or '未填写'
+
+    @admin.display(description='识别服务商')
+    def provider_summary(self, obj):
+        if not obj:
+            return '未保存'
+        return obj.get_effective_provider_display()
+
+    @admin.display(description='生效模型')
+    def effective_model_preview(self, obj):
+        return obj.effective_model if obj else '未保存'
+
+    @admin.display(description='规范化 API 地址')
+    def normalized_api_url_preview(self, obj):
+        return obj.api_url if obj else '未保存'
 
 
 @admin.register(AccountProfile)
