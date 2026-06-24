@@ -31,6 +31,29 @@ class AccountProfile(TimeStampedModel):
         return f'{self.user.username} - {self.get_role_display()}'
 
 
+class InvitationCode(TimeStampedModel):
+    TARGET_ROLE_CHOICES = [
+        (AccountProfile.ROLE_TEACHER, '教师'),
+        (AccountProfile.ROLE_ADMIN, '管理员'),
+    ]
+
+    creator = models.ForeignKey(User, on_delete=models.CASCADE, related_name='invitation_codes', verbose_name='创建者')
+    target_role = models.CharField(max_length=16, choices=TARGET_ROLE_CHOICES, verbose_name='邀请角色')
+    code = models.TextField(unique=True, verbose_name='邀请码')
+    is_locked = models.BooleanField(default=True, verbose_name='已锁定')
+    used_at = models.DateTimeField(null=True, blank=True, verbose_name='使用时间')
+    used_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name='used_invitation_codes', verbose_name='使用者')
+
+    class Meta:
+        verbose_name = '邀请码'
+        verbose_name_plural = '邀请码'
+        unique_together = ('creator', 'target_role')
+        ordering = ['target_role', '-updated_at']
+
+    def __str__(self):
+        return f'{self.creator.username} -> {self.get_target_role_display()}'
+
+
 class AIChatConfig(TimeStampedModel):
     PROVIDER_AUTO = 'auto'
     PROVIDER_OPENAI = 'openai'

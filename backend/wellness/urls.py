@@ -23,6 +23,7 @@ urlpatterns = [
     path('auth/login/', views.login_user, name='login-user'),
     path('auth/logout/', views.logout_user, name='logout-user'),
     path('auth/profile/', views.user_profile, name='user-profile'),
+    path('auth/invitations/', views.invitation_codes, name='invitation-codes'),
     path('auth/teacher-profile/', views.teacher_profile, name='teacher-profile'),
     path('dashboard/', views.dashboard_summary, name='dashboard-summary'),
     path('modules/', views.module_center, name='module-center'),

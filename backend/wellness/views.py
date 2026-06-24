@@ -3,6 +3,8 @@ import io
 import json
 import os
 import re
+import secrets
+import string
 import zipfile
 from collections import Counter
 from datetime import timedelta
@@ -15,6 +17,7 @@ from django.contrib.auth import authenticate, login, logout
 from django.contrib.auth.models import User
 from django.core.exceptions import ValidationError
 from django.core.validators import validate_email
+from django.db import transaction
 from django.db.models import Avg
 from django.http import HttpResponse
 from django.utils.dateparse import parse_datetime
@@ -34,6 +37,7 @@ from .models import (
     Counselor,
     CrisisAlert,
     ExternalResourceSource,
+    InvitationCode,
     MoodEntry,
     ResourceFetchLog,
     ResourceViewLog,
@@ -61,6 +65,8 @@ from .serializers import (
 RISK_KEYWORDS = ['自伤', '自杀', '不想活', '结束生命', '伤害自己', '活不下去']
 PASSWORD_RULE = re.compile(r'^(?=.*[a-z])(?=.*[A-Z]).{8,}$')
 FOUR_DIGIT_YEAR_RULE = re.compile(r'^\d{4}$')
+INVITATION_CODE_LENGTH = 16
+INVITATION_RANDOM_CHARS = string.ascii_letters + string.digits + string.punctuation
 MAX_AI_CHAT_MESSAGES = 12
 MAX_AI_CHAT_CONTENT_LENGTH = 1200
 AI_CHAT_CONFIG_PATH = settings.BASE_DIR / 'ai_chat_config.json'
@@ -87,6 +93,10 @@ ROLE_MAP = {
 
 READ_METHODS = ('GET', 'HEAD', 'OPTIONS')
 TEACHER_ADMIN_ROLES = (AccountProfile.ROLE_TEACHER, AccountProfile.ROLE_ADMIN)
+INVITATION_ROLE_LABELS = {
+    AccountProfile.ROLE_TEACHER: '教师',
+    AccountProfile.ROLE_ADMIN: '管理员',
+}
 INSIGHT_EXPORT_HEADERS = ['section', 'student', 'mood', 'intensity', 'sleep_quality', 'pressure_sources', 'note', 'scale', 'score', 'risk_level', 'suggestion', 'counselor', 'topic', 'status', 'scheduled_at', 'confidential_note', 'level', 'trigger', 'handled', 'handler_note', 'created_at']
 INSIGHT_EXCEL_HEADER_LABELS = {
     'section': '模块',
@@ -120,6 +130,80 @@ def user_role(user):
         return AccountProfile.ROLE_ADMIN
     profile = getattr(user, 'account_profile', None)
     return profile.role if profile else AccountProfile.ROLE_STUDENT
+
+
+def normalize_role(value):
+    return ROLE_MAP.get(value, value if value in [
+        AccountProfile.ROLE_STUDENT,
+        AccountProfile.ROLE_TEACHER,
+        AccountProfile.ROLE_ADMIN,
+    ] else AccountProfile.ROLE_STUDENT)
+
+
+def allowed_invitation_targets(user):
+    role = user_role(user)
+    if role == AccountProfile.ROLE_ADMIN:
+        return [AccountProfile.ROLE_TEACHER, AccountProfile.ROLE_ADMIN]
+    if role == AccountProfile.ROLE_TEACHER:
+        return [AccountProfile.ROLE_TEACHER]
+    return []
+
+
+def serialize_invitation_codes(user):
+    targets = allowed_invitation_targets(user)
+    if not targets:
+        return []
+    records = {
+        item.target_role: item
+        for item in InvitationCode.objects.filter(creator=user, target_role__in=targets)
+    }
+    return [
+        {
+            'target_role': target,
+            'target_label': INVITATION_ROLE_LABELS[target],
+            'code': records[target].code if target in records else '',
+            'is_locked': bool(records[target].is_locked) if target in records else False,
+            'is_used': bool(records[target].used_at) if target in records else False,
+            'updated_at': records[target].updated_at if target in records else None,
+        }
+        for target in targets
+    ]
+
+
+def generate_invitation_code():
+    while True:
+        code = ''.join(secrets.choice(INVITATION_RANDOM_CHARS) for _ in range(INVITATION_CODE_LENGTH))
+        if not InvitationCode.objects.filter(code=code).exists():
+            return code
+
+
+def validate_invitation_for_role(target_role, code):
+    if target_role == AccountProfile.ROLE_STUDENT:
+        return ''
+    normalized_code = str(code or '').strip()
+    role_label = INVITATION_ROLE_LABELS.get(target_role, '该身份')
+    if not normalized_code:
+        return f'注册{role_label}账号需要填写对应的邀请码。'
+    if not InvitationCode.objects.filter(target_role=target_role, code=normalized_code, is_locked=True, used_at__isnull=True).exists():
+        return f'{role_label}邀请码无效，请确认后重新输入。'
+    return ''
+
+
+def get_usable_invitation(target_role, code):
+    if target_role == AccountProfile.ROLE_STUDENT:
+        return None, ''
+    normalized_code = str(code or '').strip()
+    role_label = INVITATION_ROLE_LABELS.get(target_role, '该身份')
+    if not normalized_code:
+        return None, f'注册{role_label}账号需要填写对应的邀请码。'
+    invitation = (
+        InvitationCode.objects.select_for_update()
+        .filter(target_role=target_role, code=normalized_code, is_locked=True, used_at__isnull=True)
+        .first()
+    )
+    if not invitation:
+        return None, f'{role_label}邀请码无效，请确认后重新输入。'
+    return invitation, ''
 
 
 def require_write_role(request, allow_admin=True):
@@ -388,20 +472,69 @@ def read_ai_chat_config():
     return config if isinstance(config, dict) else {}
 
 
-def write_ai_chat_config(config):
-    api_url = AIChatConfig.normalize_api_url(config.get('api_url') or settings.AI_CHAT_API_URL)
-    provider = AIChatConfig.detect_provider(api_url)
-    model = normalize_ai_chat_model(config.get('model') or '', api_url)
+def safe_ai_chat_timeout(value):
+    try:
+        return int(value or settings.AI_CHAT_TIMEOUT)
+    except (TypeError, ValueError):
+        return int(settings.AI_CHAT_TIMEOUT)
+
+
+def parse_boolean(value, default=False):
+    if value in [True, False]:
+        return value
+    if value is None:
+        return default
+    normalized = str(value).strip().lower()
+    if normalized in ['1', 'true', 'yes', 'on']:
+        return True
+    if normalized in ['0', 'false', 'no', 'off']:
+        return False
+    return default
+
+
+def build_ai_chat_config_defaults(config):
+    api_url = normalize_ai_chat_api_url(config.get('api_url') or settings.AI_CHAT_API_URL)
+    provider_choices = {choice[0] for choice in AIChatConfig.PROVIDER_CHOICES}
+    requested_provider = config.get('provider') or AIChatConfig.PROVIDER_AUTO
+    if requested_provider not in provider_choices:
+        requested_provider = AIChatConfig.PROVIDER_AUTO
+    provider = (
+        AIChatConfig.detect_provider(api_url)
+        if requested_provider == AIChatConfig.PROVIDER_AUTO
+        else requested_provider
+    )
     defaults = {
-        'enabled': True,
+        'enabled': parse_boolean(config.get('enabled'), True),
         'provider': provider,
         'api_url': api_url,
-        'model': model,
-        'auto_detect_model': False,
-        'timeout': int(config.get('timeout') or settings.AI_CHAT_TIMEOUT),
+        'model': normalize_ai_chat_model(config.get('model') or settings.AI_CHAT_MODEL, api_url),
+        'auto_detect_model': parse_boolean(config.get('auto_detect_model'), False),
+        'timeout': safe_ai_chat_timeout(config.get('timeout')),
     }
     if config.get('api_key'):
-        defaults['api_key'] = config['api_key']
+        defaults['api_key'] = str(config['api_key']).strip()
+    return defaults
+
+
+def ensure_ai_chat_config_record():
+    admin_config = AIChatConfig.objects.filter(singleton_key=1).first()
+    if admin_config:
+        return admin_config
+
+    legacy_config = read_ai_chat_config()
+    if not legacy_config:
+        return None
+
+    defaults = build_ai_chat_config_defaults(legacy_config)
+    admin_config, _ = AIChatConfig.objects.update_or_create(
+        singleton_key=1,
+        defaults=defaults,
+    )
+    return admin_config
+
+
+def write_ai_chat_config(config):
+    defaults = build_ai_chat_config_defaults(config)
     AIChatConfig.objects.update_or_create(singleton_key=1, defaults=defaults)
 
 
@@ -429,24 +562,29 @@ def normalize_ai_chat_model(model, api_url):
 
 
 def effective_ai_chat_config():
-    file_config = read_ai_chat_config()
-    admin_config = AIChatConfig.objects.filter(enabled=True).order_by('-updated_at').first()
-    api_key = file_config.get('api_key') or settings.AI_CHAT_API_KEY or os.environ.get('OPENAI_API_KEY', '')
-    api_url = normalize_ai_chat_api_url(file_config.get('api_url') or settings.AI_CHAT_API_URL)
-    model = normalize_ai_chat_model(file_config.get('model') or settings.AI_CHAT_MODEL, api_url)
-    timeout = int(file_config.get('timeout') or settings.AI_CHAT_TIMEOUT)
-    provider = AIChatConfig.detect_provider(api_url)
-    source = 'page' if file_config.get('api_key') else ('env' if api_key else '')
-
+    admin_config = ensure_ai_chat_config_record()
     if admin_config:
-        api_key = admin_config.api_key or api_key
         api_url = normalize_ai_chat_api_url(admin_config.api_url)
         provider = admin_config.effective_provider
         model = admin_config.effective_model
-        timeout = int(admin_config.timeout or settings.AI_CHAT_TIMEOUT)
-        source = 'django_admin' if admin_config.api_key else source
+        timeout = safe_ai_chat_timeout(admin_config.timeout)
+        fallback_key = settings.AI_CHAT_API_KEY or os.environ.get('OPENAI_API_KEY', '')
+        api_key = admin_config.api_key or fallback_key
+        source = 'django_admin' if admin_config.api_key else ('env' if api_key else '')
+        if not admin_config.enabled:
+            source = 'disabled'
+        enabled = bool(admin_config.enabled)
+    else:
+        api_key = settings.AI_CHAT_API_KEY or os.environ.get('OPENAI_API_KEY', '')
+        api_url = normalize_ai_chat_api_url(settings.AI_CHAT_API_URL)
+        model = normalize_ai_chat_model(settings.AI_CHAT_MODEL, api_url)
+        timeout = safe_ai_chat_timeout(settings.AI_CHAT_TIMEOUT)
+        provider = AIChatConfig.detect_provider(api_url)
+        source = 'env' if api_key else ''
+        enabled = True
 
     return {
+        'enabled': enabled,
         'api_key': api_key,
         'api_url': api_url,
         'model': model,
@@ -461,6 +599,7 @@ def effective_ai_chat_config():
 def serialize_ai_chat_config(config=None):
     config = config or effective_ai_chat_config()
     return {
+        'enabled': bool(config.get('enabled', True)),
         'configured': bool(config.get('api_key')),
         'api_key_masked': masked_api_key(config.get('api_key')),
         'api_url': config.get('api_url') or settings.AI_CHAT_API_URL,
@@ -475,6 +614,9 @@ def serialize_ai_chat_config(config=None):
 
 def call_ai_chat_completion(messages):
     config = effective_ai_chat_config()
+    if not config.get('enabled', True):
+        return None, 'AI 倾听服务已停用，请联系管理员开启后再使用。'
+
     api_key = config['api_key']
     if not api_key:
         return None, 'AI 对话服务未配置 API Key，请联系管理员在 AI 倾听页面完成配置。'
@@ -525,11 +667,14 @@ def ai_chat_config(request):
     if request.method == 'GET':
         return Response(serialize_ai_chat_config())
 
-    current_config = read_ai_chat_config()
+    current_config = effective_ai_chat_config()
     api_url = (request.data.get('api_url') or settings.AI_CHAT_API_URL).strip()
     model = (request.data.get('model') or settings.AI_CHAT_MODEL).strip()
     timeout_value = request.data.get('timeout') or settings.AI_CHAT_TIMEOUT
     api_key = (request.data.get('api_key') or '').strip()
+    provider = request.data.get('provider') or current_config.get('provider') or AIChatConfig.PROVIDER_AUTO
+    enabled = request.data.get('enabled', current_config.get('enabled', True))
+    auto_detect_model = request.data.get('auto_detect_model', current_config.get('auto_detect_model', False))
 
     try:
         timeout_value = int(timeout_value)
@@ -546,8 +691,11 @@ def ai_chat_config(request):
         return Response({'detail': '超时时间建议设置在 5 到 120 秒之间。'}, status=status.HTTP_400_BAD_REQUEST)
 
     next_config = {
+        'enabled': enabled,
+        'provider': provider,
         'api_url': api_url,
         'model': model,
+        'auto_detect_model': auto_detect_model,
         'timeout': timeout_value,
     }
     if api_key:
@@ -1135,6 +1283,7 @@ def serialize_profile_payload(user):
         'user': serialize_user(user),
         'student': StudentProfileSerializer(student).data if student else None,
         'teacher_counselor': CounselorSerializer(counselor).data if counselor else None,
+        'invitation_codes': serialize_invitation_codes(user),
     }
 
 
@@ -1187,6 +1336,47 @@ def user_profile(request):
     return Response(serialize_profile_payload(request.user))
 
 
+@api_view(['GET', 'POST'])
+@authentication_classes([CsrfExemptSessionAuthentication])
+def invitation_codes(request):
+    if not request.user.is_authenticated:
+        return Response({'detail': '请先登录后再维护邀请码。'}, status=status.HTTP_403_FORBIDDEN)
+
+    targets = allowed_invitation_targets(request.user)
+    if not targets:
+        return Response({'detail': '当前身份不能制作邀请码。'}, status=status.HTTP_403_FORBIDDEN)
+
+    if request.method == 'GET':
+        return Response({'invitation_codes': serialize_invitation_codes(request.user)})
+
+    target_role = normalize_role(request.data.get('target_role'))
+    if target_role not in targets:
+        return Response({'detail': '当前身份不能制作该类型的邀请码。'}, status=status.HTTP_403_FORBIDDEN)
+
+    lock_value = request.data.get('is_locked', True)
+    if lock_value in [False, 'false', 'False', '0', 0]:
+        InvitationCode.objects.filter(creator=request.user, target_role=target_role).update(is_locked=False)
+        return Response({'invitation_codes': serialize_invitation_codes(request.user)})
+
+    code = (request.data.get('code') or '').strip() or generate_invitation_code()
+
+    existing = InvitationCode.objects.filter(code=code).exclude(creator=request.user, target_role=target_role).first()
+    if existing:
+        return Response({'detail': '该邀请码已被使用，请换一个。'}, status=status.HTTP_400_BAD_REQUEST)
+
+    InvitationCode.objects.update_or_create(
+        creator=request.user,
+        target_role=target_role,
+        defaults={
+            'code': code,
+            'is_locked': True,
+            'used_at': None,
+            'used_by': None,
+        },
+    )
+    return Response({'invitation_codes': serialize_invitation_codes(request.user)})
+
+
 @api_view(['GET'])
 def current_user(request):
     if not request.user.is_authenticated:
@@ -1205,6 +1395,8 @@ def register_user(request):
     password = request.data.get('password') or ''
     confirm_password = request.data.get('confirm_password') or ''
     role = request.data.get('role') or '学生'
+    target_role = normalize_role(role)
+    invitation_code = (request.data.get('invitation_code') or '').strip()
     full_name = (request.data.get('name') or '').strip()
     email = (request.data.get('email') or '').strip()
     student_no = (request.data.get('student_no') or username).strip()
@@ -1226,41 +1418,56 @@ def register_user(request):
         name=full_name,
         email=email,
         password=password,
-        student_no=student_no if role == '学生' else None,
-        grade=grade if role == '学生' else None,
-        pressure_sources=pressure_sources if role == '学生' else None,
+        student_no=student_no if target_role == AccountProfile.ROLE_STUDENT else None,
+        grade=grade if target_role == AccountProfile.ROLE_STUDENT else None,
+        pressure_sources=pressure_sources if target_role == AccountProfile.ROLE_STUDENT else None,
     )
     if validation_error:
         return Response({'detail': validation_error}, status=status.HTTP_400_BAD_REQUEST)
+    invitation_error = validate_invitation_for_role(target_role, invitation_code)
+    if invitation_error:
+        return Response({'detail': invitation_error}, status=status.HTTP_400_BAD_REQUEST)
     if User.objects.filter(username=username).exists():
         return Response({'detail': '该账号已存在，请直接登录。'}, status=status.HTTP_400_BAD_REQUEST)
-    if role == '学生' and StudentProfile.objects.filter(student_no=student_no).exists():
+    if target_role == AccountProfile.ROLE_STUDENT and StudentProfile.objects.filter(student_no=student_no).exists():
         return Response({'detail': '该学号已存在，请检查后重新填写。'}, status=status.HTTP_400_BAD_REQUEST)
 
-    user = User.objects.create_user(username=username, password=password, email=email)
-    user.first_name = full_name or username
-    if role == '管理员':
-        user.is_staff = True
-    user.save()
-    AccountProfile.objects.create(user=user, role=ROLE_MAP.get(role, AccountProfile.ROLE_STUDENT))
+    with transaction.atomic():
+        invitation = None
+        if target_role != AccountProfile.ROLE_STUDENT:
+            invitation, invitation_error = get_usable_invitation(target_role, invitation_code)
+            if invitation_error:
+                return Response({'detail': invitation_error}, status=status.HTTP_400_BAD_REQUEST)
 
-    if role == '学生':
-        StudentProfile.objects.create(
-            user=user,
-            student_no=student_no,
-            college=college,
-            grade=grade,
-            privacy_consent=privacy_consent,
-            pressure_sources=pressure_sources,
-            preferred_topics=preferred_topics,
-        )
-    elif ROLE_MAP.get(role) == AccountProfile.ROLE_TEACHER:
-        ensure_teacher_counselor(
-            user,
-            title=teacher_title,
-            specialties=teacher_specialties,
-            qualifications=teacher_qualifications,
-        )
+        user = User.objects.create_user(username=username, password=password, email=email)
+        user.first_name = full_name or username
+        if target_role == AccountProfile.ROLE_ADMIN:
+            user.is_staff = True
+        user.save()
+        AccountProfile.objects.create(user=user, role=target_role)
+
+        if target_role == AccountProfile.ROLE_STUDENT:
+            StudentProfile.objects.create(
+                user=user,
+                student_no=student_no,
+                college=college,
+                grade=grade,
+                privacy_consent=privacy_consent,
+                pressure_sources=pressure_sources,
+                preferred_topics=preferred_topics,
+            )
+        elif target_role == AccountProfile.ROLE_TEACHER:
+            ensure_teacher_counselor(
+                user,
+                title=teacher_title,
+                specialties=teacher_specialties,
+                qualifications=teacher_qualifications,
+            )
+
+        if invitation:
+            invitation.used_at = timezone.now()
+            invitation.used_by = user
+            invitation.save(update_fields=['used_at', 'used_by', 'updated_at'])
 
     login(request, user)
     return Response({
@@ -1274,10 +1481,13 @@ def register_user(request):
 def login_user(request):
     username = (request.data.get('username') or '').strip()
     password = request.data.get('password') or ''
+    requested_role = request.data.get('role')
 
     user = authenticate(request, username=username, password=password)
     if user is None:
         return Response({'detail': '账号或密码错误。'}, status=status.HTTP_400_BAD_REQUEST)
+    if requested_role and user_role(user) != normalize_role(requested_role):
+        return Response({'detail': '请使用对应身份入口登录该账号。'}, status=status.HTTP_400_BAD_REQUEST)
 
     login(request, user)
     return Response({

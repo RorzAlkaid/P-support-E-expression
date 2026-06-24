@@ -53,11 +53,13 @@ const aiConfigLoading = ref(false)
 const aiConfigSaving = ref(false)
 const aiConfigMessage = ref('')
 const aiConfigForm = ref({
+  enabled: true,
   provider: 'openai',
   api_key: '',
   api_key_masked: '',
   api_url: 'https://api.openai.com/v1/chat/completions',
   model: 'gpt-4o-mini',
+  auto_detect_model: false,
   timeout: 30,
   configured: false,
   source: '',
@@ -86,6 +88,7 @@ const aiProviderPresets = [
 const heartWallVisible = ref(false)
 const heartWallKey = ref(0)
 let heartWallTimer = null
+let invitationCopyToastTimer = null
 let scrollMotionFrame = null
 let pendingFullPageReload = false
 let aiSpeechRecognition = null
@@ -141,12 +144,26 @@ const profileForm = ref({
   available_slots: '',
 })
 const profileMessage = ref('')
+const invitationDrafts = ref({
+  teacher: '',
+  admin: '',
+})
+const invitationLocks = ref({
+  teacher: false,
+  admin: false,
+})
+const invitationCopyToast = ref({
+  visible: false,
+  x: 0,
+  y: 0,
+})
 const replyForms = ref({})
 const authForm = ref({
   username: '',
   password: '',
   confirmPassword: '',
   role: '学生',
+  invitationCode: '',
   name: '',
   email: '',
   studentNo: '',
@@ -159,6 +176,30 @@ const authForm = ref({
   teacherSpecialties: '',
   teacherQualifications: '',
 })
+
+const roleLabels = {
+  student: '学生',
+  teacher: '教师',
+  admin: '管理员',
+}
+
+const roleRegisterLabels = {
+  student: '学生注册',
+  teacher: '教师注册',
+  admin: '管理员注册',
+}
+
+const roleLoginLabels = {
+  student: '学生登录',
+  teacher: '教师登录',
+  admin: '管理员登录',
+}
+
+const roleFormValues = {
+  student: '学生',
+  teacher: '心理老师',
+  admin: '管理员',
+}
 
 const pageTitles = {
   home: '首页',
@@ -295,6 +336,26 @@ const moduleDetails = [
 ]
 
 const currentRole = computed(() => currentUser.value?.role || 'guest')
+const activeAuthRole = computed(() => {
+  if (authForm.value.role === '管理员') return 'admin'
+  if (authForm.value.role === '心理老师' || authForm.value.role === '教师') return 'teacher'
+  return 'student'
+})
+const activeAuthRoleLabel = computed(() => roleLabels[activeAuthRole.value])
+const activeLoginTitle = computed(() => roleLoginLabels[activeAuthRole.value])
+const activeRegisterTitle = computed(() => roleRegisterLabels[activeAuthRole.value])
+const targetInvitationRoles = computed(() => {
+  if (currentRole.value === 'admin') {
+    return [
+      { role: 'teacher', label: '教师邀请码' },
+      { role: 'admin', label: '管理员邀请码' },
+    ]
+  }
+  if (currentRole.value === 'teacher') {
+    return [{ role: 'teacher', label: '教师邀请码' }]
+  }
+  return []
+})
 const minAppointmentDateTime = computed(() => formatDateTimeInput(new Date()))
 const canWrite = computed(() => ['student', 'admin'].includes(currentRole.value))
 const canUseAiChat = computed(() => ['student', 'teacher', 'admin'].includes(currentRole.value))
@@ -444,7 +505,7 @@ function navigate(page) {
   if (page !== 'home') {
     refreshModules()
   }
-  if (page === 'profile') {
+  if (page === 'profile' || (page === 'appointment' && currentRole.value === 'teacher')) {
     loadUserProfile()
   }
   if (page === 'insights') {
@@ -923,6 +984,11 @@ function confirmAppointmentTime() {
   appointmentTimeInput.value?.blur()
 }
 
+function setAuthRole(role) {
+  authForm.value.role = roleFormValues[role] || '学生'
+  authMessage.value = ''
+}
+
 function openAuth(mode) {
   if (mode === 'register') {
     showAuth.value = false
@@ -946,6 +1012,7 @@ async function submitAuth() {
     const payload = {
       username: authForm.value.username,
       password: authForm.value.password,
+      role: authForm.value.role,
     }
     const response = await axios.post('/api/auth/login/', payload)
     currentUser.value = response.data.user
@@ -981,11 +1048,16 @@ async function submitRegister() {
       authMessage.value = validationError
       return
     }
+    if (activeAuthRole.value !== 'student' && !authForm.value.invitationCode.trim()) {
+      authMessage.value = `注册${activeAuthRoleLabel.value}账号需要填写对应的邀请码。`
+      return
+    }
     const payload = {
       username: authForm.value.username,
       password: authForm.value.password,
       confirm_password: authForm.value.confirmPassword,
       role: authForm.value.role,
+      invitation_code: authForm.value.invitationCode,
       name: authForm.value.name,
       email: authForm.value.email,
       student_no: authForm.value.studentNo,
@@ -1026,6 +1098,101 @@ function pressureSourceList(value) {
     .filter(Boolean)
 }
 
+function syncInvitationCodes(codes = []) {
+  const nextDrafts = { teacher: '', admin: '' }
+  const nextLocks = { teacher: false, admin: false }
+  codes.forEach((item) => {
+    if (!item?.target_role) return
+    nextDrafts[item.target_role] = item.code || ''
+    nextLocks[item.target_role] = Boolean(item.is_locked)
+  })
+  invitationDrafts.value = nextDrafts
+  invitationLocks.value = nextLocks
+}
+
+function randomInvitationCode() {
+  const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!"#$%&\\\'()*+,-./:;<=>?@[\\\\]^_`{|}~'
+  const values = window.crypto?.getRandomValues
+    ? window.crypto.getRandomValues(new Uint8Array(16))
+    : Array.from({ length: 16 }, () => Math.floor(Math.random() * alphabet.length))
+  return Array.from(values, (value) => alphabet[value % alphabet.length]).join('')
+}
+
+function generateInvitation(role) {
+  if (invitationLocks.value[role]) return
+  invitationDrafts.value[role] = randomInvitationCode()
+  invitationLocks.value[role] = false
+}
+
+function showInvitationCopyToast(event) {
+  const viewportWidth = window.innerWidth || document.documentElement.clientWidth || 0
+  const viewportHeight = window.innerHeight || document.documentElement.clientHeight || 0
+  const x = Math.min(Math.max(event?.clientX ?? viewportWidth / 2, 28), Math.max(28, viewportWidth - 28))
+  const y = Math.min(Math.max((event?.clientY ?? viewportHeight / 2) - 10, 24), Math.max(24, viewportHeight - 24))
+  invitationCopyToast.value = {
+    visible: true,
+    x,
+    y,
+  }
+  window.clearTimeout(invitationCopyToastTimer)
+  invitationCopyToastTimer = window.setTimeout(() => {
+    invitationCopyToast.value.visible = false
+  }, 1200)
+}
+
+async function copyInvitation(role, event) {
+  const code = invitationDrafts.value[role]
+  if (!code) return
+  try {
+    await navigator.clipboard.writeText(code)
+  } catch (error) {
+    const textarea = document.createElement('textarea')
+    textarea.value = code
+    textarea.setAttribute('readonly', '')
+    textarea.style.position = 'fixed'
+    textarea.style.opacity = '0'
+    document.body.appendChild(textarea)
+    textarea.select()
+    document.execCommand('copy')
+    document.body.removeChild(textarea)
+  }
+  showInvitationCopyToast(event)
+}
+
+async function copyLockedInvitation(role, event) {
+  if (!invitationLocks.value[role]) return
+  await copyInvitation(role, event)
+}
+
+async function lockInvitation(role, event) {
+  if (invitationLocks.value[role]) {
+    try {
+      const response = await axios.post('/api/auth/invitations/', {
+        target_role: role,
+        is_locked: false,
+      })
+      syncInvitationCodes(response.data.invitation_codes)
+    } catch (error) {
+      console.error('邀请码解锁失败', error)
+    }
+    return
+  }
+  const code = String(invitationDrafts.value[role] || '').trim()
+  if (!code) {
+    return
+  }
+  try {
+    const response = await axios.post('/api/auth/invitations/', {
+      target_role: role,
+      code,
+    })
+    syncInvitationCodes(response.data.invitation_codes)
+    await copyInvitation(role, event)
+  } catch (error) {
+    console.error('邀请码保存失败', error)
+  }
+}
+
 function syncTeacherProfileForm(profile) {
   if (!profile) return
   teacherProfileForm.value = {
@@ -1054,6 +1221,7 @@ function syncProfileForm(payload) {
     qualifications: teacher.qualifications || '',
     available_slots: (teacher.available_slots || []).join('，'),
   }
+  syncInvitationCodes(payload.invitation_codes || [])
 }
 
 async function loadUserProfile() {
@@ -1277,14 +1445,17 @@ function stopAiSpeechInput() {
 
 function syncAiConfigForm(data) {
   const nextUrl = data.api_url || 'https://api.openai.com/v1/chat/completions'
+  const nextProvider = data.provider || (nextUrl.includes('api.deepseek.com') ? 'deepseek' : 'openai')
+  aiConfigForm.value.enabled = data.enabled ?? true
   aiConfigForm.value.api_key = ''
   aiConfigForm.value.api_key_masked = data.api_key_masked || ''
   aiConfigForm.value.api_url = nextUrl
   aiConfigForm.value.model = data.model || 'gpt-4o-mini'
+  aiConfigForm.value.auto_detect_model = Boolean(data.auto_detect_model)
   aiConfigForm.value.timeout = data.timeout || 30
   aiConfigForm.value.configured = Boolean(data.configured)
   aiConfigForm.value.source = data.source || ''
-  aiConfigForm.value.provider = nextUrl.includes('api.deepseek.com') ? 'deepseek' : 'openai'
+  aiConfigForm.value.provider = nextProvider
 }
 
 function selectAiProvider(providerId) {
@@ -1315,9 +1486,12 @@ async function saveAiChatConfig() {
   aiConfigMessage.value = ''
   try {
     const response = await axios.patch('/api/ai-chat/config/', {
+      enabled: aiConfigForm.value.enabled,
+      provider: aiConfigForm.value.provider,
       api_key: aiConfigForm.value.api_key,
       api_url: aiConfigForm.value.api_url,
       model: aiConfigForm.value.model,
+      auto_detect_model: aiConfigForm.value.auto_detect_model,
       timeout: aiConfigForm.value.timeout,
     })
     syncAiConfigForm(response.data)
@@ -1643,6 +1817,17 @@ async function editAlert(alert) {
     <Transition name="heart-wall">
       <div v-if="heartWallVisible" :key="heartWallKey" class="heart-wall-toast" role="status" aria-live="polite">
         <strong>心之壁</strong>
+      </div>
+    </Transition>
+    <Transition name="copy-toast">
+      <div
+        v-if="invitationCopyToast.visible"
+        class="invitation-copy-toast"
+        :style="{ left: `${invitationCopyToast.x}px`, top: `${invitationCopyToast.y}px` }"
+        role="status"
+        aria-live="polite"
+      >
+        已复制
       </div>
     </Transition>
     <header class="site-header">
@@ -2080,9 +2265,13 @@ async function editAlert(alert) {
 
       <section v-if="currentPage === 'register'" class="register-page module-panel page-panel">
         <div class="register-heading">
-          <span class="eyebrow">学生档案</span>
-          <h2>创建账号并完善基础信息</h2>
-          <p>这些信息会写入学生档案，用于后续情绪记录、测评、咨询预约和资源推荐。</p>
+          <div class="auth-role-switch" aria-label="注册身份切换">
+            <button type="button" :class="{ active: activeAuthRole === 'student' }" @click="setAuthRole('student')">学生注册</button>
+            <button type="button" :class="{ active: activeAuthRole === 'teacher' }" @click="setAuthRole('teacher')">教师注册</button>
+          </div>
+          <span class="eyebrow">{{ activeAuthRoleLabel }}账号</span>
+          <h2>{{ activeRegisterTitle }}</h2>
+          <p>{{ activeAuthRole === 'student' ? '这些信息会写入学生档案，用于后续情绪记录、测评、咨询预约和资源推荐。' : '教师和管理员账号需要使用已锁定的邀请码完成注册。' }}</p>
         </div>
 
         <form class="register-form" @submit.prevent="submitRegister">
@@ -2090,15 +2279,9 @@ async function editAlert(alert) {
             <label>账号<input v-model.trim="authForm.username" maxlength="20" placeholder="用于登录的账号" required /></label>
             <label>姓名<input v-model.trim="authForm.name" maxlength="12" placeholder="真实姓名或常用称呼" /></label>
             <label>邮箱<input v-model.trim="authForm.email" type="email" placeholder="用于联系和通知" /></label>
-            <label>角色
-              <select v-model="authForm.role">
-                <option>学生</option>
-                <option>心理老师</option>
-                <option>管理员</option>
-              </select>
-            </label>
             <label>密码<input v-model="authForm.password" minlength="8" pattern="(?=.*[a-z])(?=.*[A-Z]).{8,}" placeholder="至少8位，含大小写字母" type="password" required /></label>
             <label>确认密码<input v-model="authForm.confirmPassword" placeholder="再次输入密码" type="password" required /></label>
+            <label v-if="activeAuthRole !== 'student'">邀请码<input v-model.trim="authForm.invitationCode" placeholder="请输入对应身份邀请码" required /></label>
 
             <template v-if="authForm.role === '学生'">
               <label>学号<input v-model.trim="authForm.studentNo" maxlength="50" placeholder="学生档案唯一编号" required /></label>
@@ -2126,6 +2309,7 @@ async function editAlert(alert) {
             </button>
             <button class="text-button" type="button" @click="openAuth('login')">已有账号，去登录</button>
           </div>
+          <button class="admin-entry-button register-admin-entry" type="button" @click="setAuthRole('admin')">管理员</button>
         </form>
       </section>
 
@@ -2165,6 +2349,34 @@ async function editAlert(alert) {
             <button class="solid-button large" type="submit">保存资料</button>
           </div>
         </form>
+
+        <section v-if="targetInvitationRoles.length" class="invitation-panel" aria-label="邀请码管理">
+          <div class="invitation-heading">
+            <h3>邀请码管理</h3>
+            <p>输入指定邀请码或随机生成后，点击锁定按钮保存并复制。右键邀请码区域可再次复制。</p>
+          </div>
+          <div class="invitation-grid">
+            <article
+              v-for="item in targetInvitationRoles"
+              :key="item.role"
+              class="invitation-card"
+              :class="{ locked: invitationLocks[item.role] }"
+              @click="copyLockedInvitation(item.role, $event)"
+              @contextmenu.prevent="copyInvitation(item.role, $event)"
+            >
+              <div>
+                <strong>{{ item.label }}</strong>
+              </div>
+              <div class="invitation-control">
+                <input v-model.trim="invitationDrafts[item.role]" placeholder="输入邀请码" :disabled="invitationLocks[item.role]" @input="invitationLocks[item.role] = false" />
+                <button class="icon-button lock-button" type="button" :title="invitationLocks[item.role] ? '解锁后修改邀请码' : '锁定并复制邀请码'" :aria-label="invitationLocks[item.role] ? `解锁${item.label}` : `锁定${item.label}`" @click.stop="lockInvitation(item.role, $event)">
+                  <span class="lock-icon" :class="{ unlocked: !invitationLocks[item.role] }" aria-hidden="true"></span>
+                </button>
+              </div>
+              <button class="outline-button invitation-generate" type="button" :disabled="invitationLocks[item.role]" @click.stop="generateInvitation(item.role)">随机生成</button>
+            </article>
+          </div>
+        </section>
       </section>
 
       <section v-if="currentPage === 'ai-chat'" class="ai-chat-page module-panel page-panel">
@@ -2186,6 +2398,10 @@ async function editAlert(alert) {
                 <strong>管理员配置 API Key</strong>
                 <span>{{ aiConfigForm.configured ? `已配置：${aiConfigForm.api_key_masked}` : '尚未配置' }}</span>
               </div>
+              <label class="ai-config-toggle">
+                <input v-model="aiConfigForm.enabled" type="checkbox" />
+                <span>启用 AI 倾听</span>
+              </label>
               <label>API Key
                 <input v-model.trim="aiConfigForm.api_key" type="password" autocomplete="off" placeholder="输入新的 API Key；留空则保留原 Key" />
               </label>
@@ -2204,9 +2420,13 @@ async function editAlert(alert) {
                 <input v-model.trim="aiConfigForm.api_url" placeholder="https://api.openai.com/v1/chat/completions" />
               </label>
               <p class="ai-config-hint">当前接口使用 OpenAI Chat Completions 格式。DeepSeek 请使用 /chat/completions，不要填写 /anthropic。</p>
+              <label class="ai-config-toggle">
+                <input v-model="aiConfigForm.auto_detect_model" type="checkbox" />
+                <span>自动检测并选择模型</span>
+              </label>
               <div class="ai-config-row">
                 <label>模型
-                  <input v-model.trim="aiConfigForm.model" placeholder="gpt-4o-mini" />
+                  <input v-model.trim="aiConfigForm.model" :disabled="aiConfigForm.auto_detect_model" placeholder="gpt-4o-mini" />
                 </label>
                 <label>超时秒数
                   <input v-model.number="aiConfigForm.timeout" type="number" min="5" max="120" />
@@ -2422,6 +2642,33 @@ async function editAlert(alert) {
             <button class="solid-button large" type="submit">保存个人资料</button>
           </form>
           <p v-if="moduleMessage" class="module-message">{{ moduleMessage }}</p>
+          <section v-if="targetInvitationRoles.length" class="invitation-panel compact-invitation" aria-label="教师邀请码管理">
+            <div class="invitation-heading">
+              <h4>教师邀请码</h4>
+              <p>输入或随机生成后点击锁定按钮，系统会保存并复制邀请码。</p>
+            </div>
+            <div class="invitation-grid">
+              <article
+                v-for="item in targetInvitationRoles"
+                :key="`appointment-${item.role}`"
+                class="invitation-card"
+                :class="{ locked: invitationLocks[item.role] }"
+                @click="copyLockedInvitation(item.role, $event)"
+                @contextmenu.prevent="copyInvitation(item.role, $event)"
+              >
+                <div>
+                  <strong>{{ item.label }}</strong>
+                </div>
+                <div class="invitation-control">
+                  <input v-model.trim="invitationDrafts[item.role]" placeholder="输入邀请码" :disabled="invitationLocks[item.role]" @input="invitationLocks[item.role] = false" />
+                  <button class="icon-button lock-button" type="button" :title="invitationLocks[item.role] ? '解锁后修改邀请码' : '锁定并复制邀请码'" :aria-label="invitationLocks[item.role] ? `解锁${item.label}` : `锁定${item.label}`" @click.stop="lockInvitation(item.role, $event)">
+                    <span class="lock-icon" :class="{ unlocked: !invitationLocks[item.role] }" aria-hidden="true"></span>
+                  </button>
+                </div>
+                <button class="outline-button invitation-generate" type="button" :disabled="invitationLocks[item.role]" @click.stop="generateInvitation(item.role)">随机生成</button>
+              </article>
+            </div>
+          </section>
         </div>
 
         <div class="appointment-board appointment-info-board">
@@ -2689,12 +2936,12 @@ async function editAlert(alert) {
     <div v-if="showAuth" class="modal-backdrop" @click.self="showAuth = false">
       <section class="auth-modal" role="dialog" aria-modal="true" aria-label="登录注册">
         <button class="modal-close" type="button" aria-label="关闭" @click="showAuth = false">×</button>
-        <div class="auth-tabs">
-          <button class="active" type="button">登录</button>
-          <button type="button" @click="openAuth('register')">注册</button>
+        <div class="auth-role-switch" aria-label="登录身份切换">
+          <button type="button" :class="{ active: activeAuthRole === 'student' }" @click="setAuthRole('student')">学生登录</button>
+          <button type="button" :class="{ active: activeAuthRole === 'teacher' }" @click="setAuthRole('teacher')">教师登录</button>
         </div>
-        <h2>欢迎回来</h2>
-        <p>登录后进入学生端或教师端。</p>
+        <h2>{{ activeLoginTitle }}</h2>
+        <p>请使用{{ activeAuthRoleLabel }}账号登录对应入口。</p>
         <form class="auth-form" @submit.prevent="submitAuth">
           <input v-model.trim="authForm.username" maxlength="20" placeholder="账号" required />
           <input v-model="authForm.password" placeholder="密码" type="password" required />
@@ -2702,6 +2949,10 @@ async function editAlert(alert) {
           <button class="solid-button large" type="submit" :disabled="authSubmitting">
             {{ authSubmitting ? '提交中...' : '登录' }}
           </button>
+          <div class="auth-form-links">
+            <button class="text-button" type="button" @click="openAuth('register')">没有账号，去注册</button>
+          </div>
+          <button class="admin-entry-button" type="button" @click="setAuthRole('admin')">管理员</button>
         </form>
       </section>
     </div>

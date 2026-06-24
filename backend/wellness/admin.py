@@ -11,6 +11,7 @@ from .models import (
     Counselor,
     CrisisAlert,
     ExternalResourceSource,
+    InvitationCode,
     MoodEntry,
     ResourceFetchLog,
     ResourceViewLog,
@@ -94,7 +95,16 @@ class AIChatConfigAdmin(admin.ModelAdmin):
         }),
     )
 
+    def get_queryset(self, request):
+        from .views import ensure_ai_chat_config_record
+
+        ensure_ai_chat_config_record()
+        return super().get_queryset(request)
+
     def has_add_permission(self, request):
+        from .views import ensure_ai_chat_config_record
+
+        ensure_ai_chat_config_record()
         if AIChatConfig.objects.exists():
             return False
         return super().has_add_permission(request)
@@ -131,6 +141,14 @@ class AccountProfileAdmin(admin.ModelAdmin):
     list_display = ('user', 'role', 'created_at')
     list_filter = ('role',)
     search_fields = ('user__username', 'user__first_name', 'user__last_name')
+
+
+@admin.register(InvitationCode)
+class InvitationCodeAdmin(admin.ModelAdmin):
+    list_display = ('creator', 'target_role', 'code', 'is_locked', 'used_by', 'used_at', 'updated_at')
+    list_filter = ('target_role', 'is_locked')
+    search_fields = ('creator__username', 'creator__first_name', 'code')
+    readonly_fields = ('created_at', 'updated_at')
 
 
 @admin.register(StudentProfile)
