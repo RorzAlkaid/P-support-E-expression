@@ -11,6 +11,6 @@ class Migration(migrations.Migration):
         migrations.AlterField(
             model_name='invitationcode',
             name='code',
-            field=models.TextField(unique=True, verbose_name='邀请码'),
+            field=models.TextField(verbose_name='邀请码'),
         ),
     ]

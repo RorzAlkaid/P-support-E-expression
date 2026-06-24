@@ -39,7 +39,7 @@ class InvitationCode(TimeStampedModel):
 
     creator = models.ForeignKey(User, on_delete=models.CASCADE, related_name='invitation_codes', verbose_name='创建者')
     target_role = models.CharField(max_length=16, choices=TARGET_ROLE_CHOICES, verbose_name='邀请角色')
-    code = models.TextField(unique=True, verbose_name='邀请码')
+    code = models.TextField(verbose_name='邀请码')
     is_locked = models.BooleanField(default=True, verbose_name='已锁定')
     used_at = models.DateTimeField(null=True, blank=True, verbose_name='使用时间')
     used_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name='used_invitation_codes', verbose_name='使用者')
