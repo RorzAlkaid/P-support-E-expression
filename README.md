@@ -157,14 +157,6 @@ npm run dev
 
 生产构建：`npm run build`（产物输出到 `frontend/dist/`）
 
-### 3. 测试账号
-
-| 账号 | 密码 | 角色 |
-|------|------|------|
-| admin | admin123456 | 管理员 |
-| student001 | student001 | 学生 |
-| teacher001 | teacher001 | 教师 |
-
 ## AI 倾听配置
 
 支持 OpenAI、DeepSeek 及兼容 Chat Completions 格式的接口。
