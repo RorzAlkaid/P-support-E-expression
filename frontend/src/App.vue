@@ -800,6 +800,22 @@ async function submitTreeholeReplyFromDetail() {
   await loadTreeholeDetail(currentTreeholeId.value)
 }
 
+async function supportTreehole(postId, event) {
+  if (!guardPageAccess('treehole')) return
+  try {
+    const res = await axios.post(`/api/modules/treeholes/${postId}/support/`)
+    // 更新列表中的 support_count
+    const post = allTreeholes.value.find((t) => String(t.id) === String(postId))
+    if (post) post.support_count = res.data.support_count
+    // 更新详情中的 support_count
+    if (currentTreehole.value && String(currentTreehole.value.id) === String(postId)) {
+      currentTreehole.value.support_count = res.data.support_count
+    }
+  } catch (error) {
+    // 静默处理
+  }
+}
+
 function scrollToModules() {
   document.querySelector('#modules')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
 }
@@ -3126,7 +3142,12 @@ async function editAlert(alert) {
               <p>{{ post.content.slice(0, 140) }}{{ post.content.length > 140 ? '...' : '' }}</p>
               <div class="treehole-post-foot">
                 <small>{{ formatDateTime(post.created_at) }}</small>
-                <button class="treehole-enter-btn" type="button" @click.stop="openTreehole(post)">查看详情 →</button>
+                <div class="treehole-foot-actions">
+                  <button class="support-btn" type="button" @click.stop="supportTreehole(post.id, $event)" title="给 ta 一点支持">
+                    ♥ {{ post.support_count || 0 }}
+                  </button>
+                  <button class="treehole-enter-btn" type="button" @click.stop="openTreehole(post)">查看详情 →</button>
+                </div>
               </div>
             </article>
           </div>
@@ -3422,10 +3443,10 @@ async function editAlert(alert) {
             </div>
 
             <div class="treehole-detail-stats">
-              <div class="treehole-stat">
+              <button class="treehole-stat support-stat-btn" type="button" @click="supportTreehole(currentTreehole.id, $event)" title="给 ta 一点支持">
                 <strong>{{ currentTreehole.support_count || 0 }}</strong>
-                <span>支持</span>
-              </div>
+                <span>支持 ♥</span>
+              </button>
               <div class="treehole-stat">
                 <strong>{{ (currentTreehole.replies || []).length }}</strong>
                 <span>回复</span>

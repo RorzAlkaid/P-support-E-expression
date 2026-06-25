@@ -1463,6 +1463,21 @@ def reply_treehole(request, post_id):
     return Response(TreeHoleReplySerializer(reply).data, status=status.HTTP_201_CREATED)
 
 
+@api_view(['POST'])
+@authentication_classes([CsrfExemptSessionAuthentication])
+def support_treehole(request, post_id):
+    """为树洞帖子 +1 支持（仅学生和管理员可操作）"""
+    role = user_role(request.user)
+    if role not in [AccountProfile.ROLE_STUDENT, AccountProfile.ROLE_ADMIN]:
+        return Response({'detail': '只有学生和管理员可以支持树洞帖子。'}, status=status.HTTP_403_FORBIDDEN)
+    post = TreeHolePost.objects.filter(id=post_id).first()
+    if not post:
+        return Response({'detail': '帖子不存在。'}, status=status.HTTP_404_NOT_FOUND)
+    post.support_count = (post.support_count or 0) + 1
+    post.save(update_fields=['support_count'])
+    return Response({'support_count': post.support_count})
+
+
 @api_view(['GET', 'PATCH'])
 @authentication_classes([CsrfExemptSessionAuthentication])
 def teacher_profile(request):

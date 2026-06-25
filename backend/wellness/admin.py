@@ -255,11 +255,16 @@ class TagAdmin(admin.ModelAdmin):
 
     @admin.display(description='引用次数')
     def usage_count(self, obj):
-        from django.db.models import Q
         from .models import Article, Counselor
-        articles = Article.objects.filter(tags__contains=[obj.name]).count()
-        counselors = Counselor.objects.filter(specialties__contains=[obj.name]).count()
-        total = articles + counselors
+        total = 0
+        try:
+            total += Article.objects.filter(tags__icontains=obj.name).count()
+        except Exception:
+            pass
+        try:
+            total += Counselor.objects.filter(specialties__icontains=obj.name).count()
+        except Exception:
+            pass
         return total
 
     @admin.action(description='批量启用所选标签')

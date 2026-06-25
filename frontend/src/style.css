@@ -31,6 +31,7 @@
 body {
   min-width: 320px;
   margin: 0;
+  font-family: "Microsoft YaHei", "微软雅黑", "PingFang SC", "Hiragino Sans GB", Arial, sans-serif;
   background:
     radial-gradient(circle at 8% 12%, rgba(240, 173, 99, 0.16), transparent 30%),
     linear-gradient(180deg, #fff7f5 0%, #fffaf6 48%, #fff4f2 100%);
@@ -38,8 +39,10 @@ body {
 
 button,
 input,
-select {
+select,
+textarea {
   font: inherit;
+  font-family: "Microsoft YaHei", "微软雅黑", "PingFang SC", "Hiragino Sans GB", Arial, sans-serif;
 }
 
 button {
@@ -2551,6 +2554,58 @@ main,
   background: var(--rose);
   border-color: var(--rose);
   transform: translateY(-1px);
+}
+
+.treehole-foot-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.support-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 24px;
+  padding: 0 10px;
+  border: 1px solid rgba(240, 173, 99, 0.35);
+  border-radius: 3px;
+  color: #c7853a;
+  background: rgba(255, 248, 240, 0.9);
+  font-size: 11px;
+  font-weight: 760;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.support-btn:hover {
+  color: #ffffff;
+  background: #f0ad63;
+  border-color: #f0ad63;
+  transform: scale(1.06);
+}
+
+.support-stat-btn {
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  padding: 6px 10px;
+  border-radius: 6px;
+}
+
+.support-stat-btn:hover {
+  background: rgba(240, 173, 99, 0.12);
+}
+
+.support-stat-btn:hover strong {
+  color: #f0ad63;
+  transform: scale(1.1);
+}
+
+.support-stat-btn strong {
+  display: inline-block;
+  transition: transform 0.2s ease;
 }
 
 .treehole-list {

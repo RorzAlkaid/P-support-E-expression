@@ -34,6 +34,7 @@ urlpatterns = [
     path('modules/appointments/', views.create_appointment, name='create-appointment'),
     path('modules/treeholes/', views.publish_treehole, name='publish-treehole'),
     path('modules/treeholes/<int:post_id>/reply/', views.reply_treehole, name='reply-treehole'),
+    path('modules/treeholes/<int:post_id>/support/', views.support_treehole, name='support-treehole'),
     path('ai-chat/config/', views.ai_chat_config, name='ai-chat-config'),
     path('ai-chat/', views.ai_chat, name='ai-chat'),
     path('alerts/<int:alert_id>/student-detail/', views.alert_student_detail, name='alert-student-detail'),
