@@ -47,6 +47,7 @@ let riskChart = null
 let appointmentChart = null
 let chartResizeObserver = null
 let chartVisibilityObserver = null
+let scrollRevealObserver = null
 let chartRenderTimer = null
 let chartRenderAttempts = 0
 const maxChartRenderAttempts = 12
@@ -960,9 +961,12 @@ function setupChartObservers() {
   if (!chartVisibilityObserver) {
     chartVisibilityObserver = new IntersectionObserver(
       (entries) => {
-        if (entries.some((entry) => entry.isIntersecting)) {
-          scheduleRenderCharts()
-        }
+        entries.forEach((entry) => {
+          if (entry.isIntersecting) {
+            // 图表首次进入视口或重新进入 —— 触发动画渲染
+            scheduleRenderCharts()
+          }
+        })
       },
       { threshold: 0.15 },
     )
@@ -974,23 +978,64 @@ function setupChartObservers() {
   })
 }
 
+function setupScrollReveal() {
+  if (scrollRevealObserver) {
+    scrollRevealObserver.disconnect()
+  }
+  scrollRevealObserver = new IntersectionObserver(
+    (entries) => {
+      entries.forEach((entry) => {
+        if (entry.isIntersecting) {
+          entry.target.classList.add('is-revealed')
+          scrollRevealObserver.unobserve(entry.target)
+        }
+      })
+    },
+    { threshold: 0.12, rootMargin: '0px 0px -30px 0px' },
+  )
+  nextTick(() => {
+    document.querySelectorAll('.reveal-on-scroll').forEach((el) => {
+      scrollRevealObserver.observe(el)
+    })
+  })
+}
+
 function renderCharts() {
   let renderedTrend = false
   let renderedPressure = false
 
+  // ===== ① 情绪趋势折线图 —— 线从起点描摹到终点 =====
   if (chartReady(trendChartRef.value)) {
     trendChart = trendChart || echarts.init(trendChartRef.value)
     trendChart.setOption({
+      animation: true,
+      animationDuration: 1000,
+      animationEasing: 'cubicInOut',
       tooltip: { trigger: 'axis' },
       legend: { top: 0, data: ['情绪强度', '睡眠质量'] },
       grid: { top: 44, right: 20, bottom: 28, left: 34 },
-      xAxis: { type: 'category', data: moodTrend.value.map((item) => item.date) },
-      yAxis: { type: 'value', min: 0, max: 10 },
+      xAxis: {
+        type: 'category',
+        data: moodTrend.value.map((item) => item.date),
+        animation: true,
+        animationDuration: 600,
+      },
+      yAxis: {
+        type: 'value',
+        min: 0,
+        max: 10,
+        animation: true,
+        animationDuration: 500,
+      },
       series: [
         {
           name: '情绪强度',
           type: 'line',
           smooth: true,
+          animation: true,
+          animationType: 'line',        // ★ 整条线从左向右描摹
+          animationDuration: 1800,
+          animationEasing: 'cubicInOut',
           data: moodTrend.value.map((item) => item.intensity),
           lineStyle: { color: '#d85d73', width: 3 },
           itemStyle: { color: '#d85d73' },
@@ -1000,77 +1045,146 @@ function renderCharts() {
           name: '睡眠质量',
           type: 'line',
           smooth: true,
+          animation: true,
+          animationType: 'line',        // ★ 整条线从左向右描摹
+          animationDuration: 1800,
+          animationDelay: 500,          // 比第一条线晚半秒
+          animationEasing: 'cubicInOut',
           data: moodTrend.value.map((item) => item.sleep_quality),
           lineStyle: { color: '#4c8f8a', width: 3 },
           itemStyle: { color: '#4c8f8a' },
         },
       ],
-    })
+    }, { notMerge: true })
     renderedTrend = true
   }
 
+  // ===== ② 压力来源雷达图 —— 从中心向外扩散 =====
   if (chartReady(pressureChartRef.value)) {
     pressureChart = pressureChart || echarts.init(pressureChartRef.value)
     pressureChart.setOption({
+      animation: true,
+      animationDuration: 800,
+      animationEasing: 'cubicOut',
       tooltip: {},
       radar: {
         indicator: pressureData.value.map((item) => ({ name: item.name, max: 8 })),
         radius: '64%',
+        center: ['50%', '52%'],
+        animation: true,
+        animationDuration: 800,
+        axisName: { color: '#555' },
       },
       series: [
         {
           type: 'radar',
-          data: [{ value: pressureData.value.map((item) => item.value), name: '压力来源' }],
+          animation: true,
+          animationType: 'expansion',   // ★ 由内向外扩散
+          animationDuration: 1800,
+          animationEasing: 'cubicOut',
+          symbol: 'circle',
+          symbolSize: 6,
+          data: [{
+            value: pressureData.value.map((item) => item.value),
+            name: '压力来源',
+          }],
           areaStyle: { color: 'rgba(240, 173, 99, 0.22)' },
           lineStyle: { color: '#f0ad63', width: 3 },
           itemStyle: { color: '#f0ad63' },
         },
       ],
-    })
+    }, { notMerge: true })
     renderedPressure = true
   }
 
+  // ===== ③ 风险分布饼图 —— 扇区顺时针依次转出 =====
   if (chartReady(riskChartRef.value)) {
     riskChart = riskChart || echarts.init(riskChartRef.value)
     riskChart.setOption({
+      animation: true,
+      animationDuration: 1000,
+      animationEasing: 'cubicOut',
       tooltip: { trigger: 'item' },
       legend: { bottom: 0 },
       series: [
         {
           type: 'pie',
           radius: ['42%', '68%'],
+          // ★ 扇区沿顺时针依次展开，每个延迟 300ms
+          animationType: 'scale',
+          animationDuration: 1200,
+          animationEasing: 'cubicOut',
+          animationDelay: function (idx) { return idx * 300 },
           data: insightData.value?.risk_distribution || [],
-          itemStyle: { borderColor: '#fff', borderWidth: 2 },
+          itemStyle: {
+            borderColor: '#fff',
+            borderWidth: 2,
+          },
         },
       ],
-    })
+    }, { notMerge: true })
   }
 
+  // ===== ④ 预约量表柱状图 —— 柱子从底部逐个升起 =====
   if (chartReady(appointmentChartRef.value)) {
     appointmentChart = appointmentChart || echarts.init(appointmentChartRef.value)
     appointmentChart.setOption({
+      animation: true,
+      animationDuration: 800,
+      animationEasing: 'cubicOut',
       tooltip: { trigger: 'axis' },
       grid: { top: 18, right: 20, bottom: 32, left: 42 },
-      xAxis: { type: 'category', data: (insightData.value?.appointment_distribution || []).map((item) => item.name) },
-      yAxis: { type: 'value' },
+      xAxis: {
+        type: 'category',
+        data: (insightData.value?.appointment_distribution || []).map((item) => item.name),
+        animation: true,
+        animationDuration: 500,
+      },
+      yAxis: {
+        type: 'value',
+        animation: true,
+        animationDuration: 400,
+      },
       series: [
         {
           type: 'bar',
+          animation: true,
+          animationType: 'scale',       // ★ 从底部升起
+          animationDuration: 1400,
+          animationEasing: 'cubicOut',
+          animationDelay: function (idx) { return idx * 220 },
           data: (insightData.value?.appointment_distribution || []).map((item) => item.value),
-          itemStyle: { color: '#4c8f8a', borderRadius: [6, 6, 0, 0] },
+          itemStyle: {
+            color: '#4c8f8a',
+            borderRadius: [6, 6, 0, 0],
+          },
         },
       ],
-    })
+    }, { notMerge: true })
   }
 
   return renderedTrend && renderedPressure
 }
 
-watch([currentPage, moodTrend, pressureData, insightData, currentUser], async () => {
-  if (!['home', 'insights'].includes(currentPage.value) || loading.value) return
+watch([currentPage, moodTrend, pressureData, insightData, currentUser, loading], async () => {
+  if (loading.value) return
   await nextTick()
-  setupChartObservers()
-  scheduleRenderCharts()
+  setupScrollReveal()
+  if (['home', 'insights'].includes(currentPage.value)) {
+    setupChartObservers()
+    // 仅当图表容器确实在视口内才立即渲染，其余由 IntersectionObserver 触发
+    nextTick(() => {
+      const inView = (el) => {
+        if (!el) return false
+        const rect = el.getBoundingClientRect()
+        return rect.top < window.innerHeight && rect.bottom > 0
+      }
+      if (inView(trendChartRef.value) || inView(pressureChartRef.value) ||
+          inView(riskChartRef.value) || inView(appointmentChartRef.value)) {
+        scheduleRenderCharts()
+      }
+    })
+  }
 }, { flush: 'post' })
 
 watch(() => tagPopup.value.visible, (visible) => {
@@ -1093,6 +1207,7 @@ watch(() => tagPopup.value.visible, (visible) => {
 onMounted(() => {
   handleScroll()
   setupAiSpeechRecognition()
+  setupScrollReveal()
   loadBackendData()
   loadCurrentUser()
   window.addEventListener('pointermove', handlePointerMove)
@@ -1139,6 +1254,7 @@ onUnmounted(() => {
   window.cancelAnimationFrame(scrollMotionFrame)
   chartResizeObserver?.disconnect()
   chartVisibilityObserver?.disconnect()
+  scrollRevealObserver?.disconnect()
   trendChart?.dispose()
   pressureChart?.dispose()
 })
@@ -2316,7 +2432,7 @@ async function editAlert(alert) {
       </section>
 
       <section id="features" class="section feature-section scroll-follow follow-medium">
-        <div class="section-heading align-left wide-heading">
+        <div class="section-heading align-left wide-heading reveal-on-scroll">
           <span class="eyebrow">核心功能</span>
           <h2>从日常表达，到专业支持</h2>
           <p>平台不是单一的论坛或预约系统，而是一套围绕学生心理状态变化展开的支持路径。</p>
@@ -2326,7 +2442,7 @@ async function editAlert(alert) {
           <article
             v-for="(feature, index) in features"
             :key="feature.title"
-            :class="['feature-card', 'scroll-converge', feature.accent]"
+            :class="['feature-card', 'scroll-converge', 'reveal-on-scroll', feature.accent]"
             v-bind="motionAttrs(index, features.length, 120)"
             tabindex="0"
             @click="navigate(feature.page)"
@@ -2362,7 +2478,7 @@ async function editAlert(alert) {
       </section>
 
       <section id="process" class="section process-section scroll-follow follow-medium">
-        <div class="section-heading align-left wide-heading">
+        <div class="section-heading align-left wide-heading reveal-on-scroll">
           <span class="eyebrow">支持流程</span>
           <h2>清晰的心理支持闭环</h2>
         </div>
@@ -2375,7 +2491,7 @@ async function editAlert(alert) {
       </section>
 
       <section id="ai-listening" class="section ai-showcase-section scroll-follow follow-medium">
-        <div class="section-heading align-left wide-heading">
+        <div class="section-heading align-left wide-heading reveal-on-scroll">
           <span class="eyebrow">AI 倾听</span>
           <h2>在正式求助前，先把感受说出来</h2>
           <p>AI 倾听面向学生和心理老师开放，提供低压力的即时对话入口。游客可在首页了解功能，进入对话前需要登录。</p>
@@ -2423,7 +2539,7 @@ async function editAlert(alert) {
       </section>
 
       <section id="insights" class="section insight-section scroll-follow follow-medium">
-        <div class="section-heading align-left wide-heading">
+        <div class="section-heading align-left wide-heading reveal-on-scroll">
           <span class="eyebrow">数据洞察</span>
           <h2>把心理状态转化为可理解的趋势</h2>
           <p>下方数据来自平台后端，用于呈现情绪变化、压力来源、预警数量和资源更新情况。</p>
@@ -2451,11 +2567,11 @@ async function editAlert(alert) {
           </div>
 
           <div class="chart-grid">
-            <article class="data-panel scroll-converge" v-bind="motionAttrs(0, 2, 135)">
+            <article class="data-panel scroll-converge reveal-on-scroll" v-bind="motionAttrs(0, 2, 135)">
               <h3>情绪与睡眠趋势</h3>
               <div ref="trendChartRef" class="chart-box"></div>
             </article>
-            <article class="data-panel scroll-converge" v-bind="motionAttrs(1, 2, 135)">
+            <article class="data-panel scroll-converge reveal-on-scroll" v-bind="motionAttrs(1, 2, 135)">
               <h3>压力来源雷达图</h3>
               <div ref="pressureChartRef" class="chart-box"></div>
             </article>
@@ -2465,7 +2581,7 @@ async function editAlert(alert) {
       </section>
 
       <section id="support" class="section support-section scroll-follow follow-deep">
-        <div class="section-heading align-left wide-heading">
+        <div class="section-heading align-left wide-heading reveal-on-scroll">
           <span class="eyebrow">专业对接</span>
           <h2>基于学生偏好与压力来源推荐咨询师</h2>
           <p>系统根据学生压力来源、关注主题与咨询师擅长领域智能计算匹配度，推荐最适合的心理咨询师。</p>
@@ -2494,7 +2610,7 @@ async function editAlert(alert) {
       </section>
 
       <section id="resources" class="section resource-section scroll-follow follow-medium">
-        <div class="section-heading align-left wide-heading">
+        <div class="section-heading align-left wide-heading reveal-on-scroll">
           <span class="eyebrow">心理资源</span>
           <h2>科普文章与自助干预内容动态更新</h2>
         </div>
@@ -2519,7 +2635,7 @@ async function editAlert(alert) {
       </section>
 
       <section id="modules" class="section module-section scroll-follow follow-deep">
-        <div class="section-heading align-left wide-heading">
+        <div class="section-heading align-left wide-heading reveal-on-scroll">
           <span class="eyebrow">功能简介</span>
           <h2>按模块进入对应功能页</h2>
           <p>点击任一功能卡片进入对应页面，根据当前角色进行浏览、提交或管理操作。</p>
@@ -2529,7 +2645,7 @@ async function editAlert(alert) {
           <article
             v-for="(intro, index) in moduleIntros"
             :key="intro.page"
-            :class="['module-intro-card', 'scroll-converge', { 'alert-priority': intro.page === 'alerts' }]"
+            :class="['module-intro-card', 'scroll-converge', 'reveal-on-scroll', { 'alert-priority': intro.page === 'alerts' }]"
             v-bind="motionAttrs(index, moduleIntros.length, 104)"
             tabindex="0"
             @click="navigate(intro.page)"
@@ -2566,13 +2682,13 @@ async function editAlert(alert) {
     </main>
 
     <main v-else class="standalone-page">
-      <section v-if="currentPage !== 'ai-chat'" class="page-hero">
+      <section v-if="currentPage !== 'ai-chat'" class="page-hero reveal-on-scroll">
         <button class="text-button" type="button" @click="navigate('home')">返回首页</button>
         <span class="eyebrow">{{ pageTitles[currentPage] }}</span>
         <h1>{{ pageTitles[currentPage] }}</h1>
       </section>
 
-      <section v-if="currentPage === 'insights'" class="insights-page module-panel page-panel">
+      <section v-if="currentPage === 'insights'" class="insights-page module-panel page-panel reveal-on-scroll">
         <div class="insights-toolbar">
           <div>
             <span class="eyebrow">开放数据看板</span>
@@ -2782,7 +2898,7 @@ async function editAlert(alert) {
         </section>
       </section>
 
-      <section v-if="currentPage === 'ai-chat'" class="ai-chat-page module-panel page-panel">
+      <section v-if="currentPage === 'ai-chat'" class="ai-chat-page module-panel page-panel reveal-on-scroll">
         <div class="ai-chat-layout">
           <aside class="ai-chat-side">
             <div class="ai-companion-card">
@@ -2906,7 +3022,7 @@ async function editAlert(alert) {
         </div>
       </section>
 
-      <section v-if="currentPage === 'details'" class="detail-page">
+      <section v-if="currentPage === 'details'" class="detail-page reveal-on-scroll">
         <article class="detail-overview module-panel">
           <span class="eyebrow">平台说明</span>
           <h2>围绕“表达、识别、对接、关怀”的心理支持闭环</h2>
@@ -2950,7 +3066,7 @@ async function editAlert(alert) {
         </div>
       </section>
 
-      <section v-if="currentPage === 'mood'" class="page-panel mood-page">
+      <section v-if="currentPage === 'mood'" class="page-panel mood-page reveal-on-scroll">
         <form v-if="canWrite" class="module-form mood-form" @submit.prevent="submitMood">
           <label>今日情绪<input v-model="moodForm.mood" /></label>
           <label>情绪强度<input v-model="moodForm.intensity" type="range" min="1" max="10" /></label>
@@ -2981,7 +3097,7 @@ async function editAlert(alert) {
         </div>
       </section>
 
-      <section v-if="currentPage === 'treehole'" class="page-panel treehole-page">
+      <section v-if="currentPage === 'treehole'" class="page-panel treehole-page reveal-on-scroll">
         <form v-if="canPublishTreehole" class="module-form treehole-form" @submit.prevent="submitTreehole">
           <label>分类
             <select v-model="treeholeForm.category">
@@ -3023,7 +3139,7 @@ async function editAlert(alert) {
         </div>
       </section>
 
-      <section v-if="currentPage === 'assessment'" class="page-panel assessment-page">
+      <section v-if="currentPage === 'assessment'" class="page-panel assessment-page reveal-on-scroll">
         <form v-if="canWrite" class="module-form assessment-form" @submit.prevent="submitAssessment">
           <label class="full">选择量表
             <select v-model="assessmentForm.scale">
@@ -3061,7 +3177,7 @@ async function editAlert(alert) {
         </div>
       </section>
 
-      <section v-if="currentPage === 'appointment'" class="page-panel appointment-page">
+      <section v-if="currentPage === 'appointment'" class="page-panel appointment-page reveal-on-scroll">
         <div v-if="currentRole === 'teacher'" class="appointment-board teacher-profile-board">
           <h4>教师个人资料</h4>
           <form class="module-form" @submit.prevent="submitTeacherProfile">
@@ -3202,7 +3318,7 @@ async function editAlert(alert) {
         </div>
       </section>
 
-      <section v-if="currentPage === 'resources'" class="module-panel page-panel">
+      <section v-if="currentPage === 'resources'" class="module-panel page-panel reveal-on-scroll">
         <div class="resource-search-bar">
           <input v-model.trim="resourceSearch" type="search" placeholder="搜索文章标题、来源、分类或标签" />
           <span>优先展示与你的打卡、测评和树洞标签更相关的资源</span>
@@ -3226,7 +3342,7 @@ async function editAlert(alert) {
         </div>
       </section>
 
-      <section v-if="currentPage === 'article'" class="article-detail module-panel page-panel">
+      <section v-if="currentPage === 'article'" class="article-detail module-panel page-panel reveal-on-scroll">
         <template v-if="currentArticle">
           <span class="eyebrow">{{ currentArticle.category }} · {{ currentArticle.source }}</span>
           <h2>{{ currentArticle.title }}</h2>
@@ -3250,7 +3366,7 @@ async function editAlert(alert) {
         </template>
       </section>
 
-      <section v-if="currentPage === 'alerts' && canViewAlerts" class="page-panel alerts-page">
+      <section v-if="currentPage === 'alerts' && canViewAlerts" class="page-panel alerts-page reveal-on-scroll">
         <div v-if="alertItems.length" class="section-block">
           <div class="section-label"><span>预警列表</span><em>{{ alertItems.length }} 条 · {{ alertItems.filter(a => !a.handled).length }} 条待跟进</em></div>
           <div class="alert-list">
@@ -3285,7 +3401,7 @@ async function editAlert(alert) {
       <section v-if="currentPage === 'treehole-detail'" class="page-panel treehole-detail-page">
         <button class="text-button" type="button" @click="navigate('treehole')">← 返回树洞列表</button>
         <template v-if="currentTreehole">
-          <article class="treehole-detail-card">
+          <article class="treehole-detail-card reveal-on-scroll">
             <div class="treehole-detail-head">
               <div class="treehole-detail-author">
                 <span class="treehole-detail-avatar" :style="{ background: '#d85d73' }">{{ (currentTreehole.student_name || '匿').slice(0, 1) }}</span>
@@ -3343,7 +3459,7 @@ async function editAlert(alert) {
         </template>
       </section>
 
-      <section v-if="currentPage === 'alert-detail' && canViewAlerts" class="module-panel page-panel alert-detail-page">
+      <section v-if="currentPage === 'alert-detail' && canViewAlerts" class="module-panel page-panel alert-detail-page reveal-on-scroll">
         <div class="alert-detail-header">
           <div>
             <span class="eyebrow">预警学生详情</span>
@@ -3453,7 +3569,7 @@ async function editAlert(alert) {
       </section>
     </main>
 
-    <footer v-if="currentPage === 'home'" class="site-footer">
+    <footer class="site-footer">
       <div class="footer-inner">
         <div class="footer-brand">
           <img :src="logoMark" alt="" />
@@ -3470,7 +3586,7 @@ async function editAlert(alert) {
             <a href="#/home" @click.prevent="navigateHomeSection('scenes')">使用场景</a>
             <a href="#/home" @click.prevent="navigateHomeSection('contact')">联系我们</a>
             <a href="#/register" @click.prevent="openAuth('register')">加入我们</a>
-            <a href="https://github.com/RorzAlkaid/P-support-E-expression" target="_blank" rel="noreferrer" class="footer-github-link" title="在 GitHub 上查看项目">GitHub 协作</a>
+            <a href="https://github.com/RorzAlkaid/P-support-E-expression" target="_blank" rel="noreferrer" class="footer-github-link" title="在 GitHub 上查看项目">GitHub</a>
           </nav>
 
           <p>

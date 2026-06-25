@@ -52,6 +52,19 @@ a {
   text-decoration: none;
 }
 
+/* ===== scroll-triggered fade-in ===== */
+.reveal-on-scroll {
+  opacity: 0;
+  transform: translateY(28px);
+  transition: opacity 0.72s cubic-bezier(0.22, 0.61, 0.36, 1),
+              transform 0.72s cubic-bezier(0.22, 0.61, 0.36, 1);
+}
+
+.reveal-on-scroll.is-revealed {
+  opacity: 1;
+  transform: translateY(0);
+}
+
 h1,
 h2,
 h3,
