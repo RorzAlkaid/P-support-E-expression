@@ -2950,7 +2950,6 @@ async function editAlert(alert) {
       </section>
 
       <section v-if="currentPage === 'mood'" class="page-panel mood-page">
-        <h3>情绪打卡记录</h3>
         <form v-if="canWrite" class="module-form mood-form" @submit.prevent="submitMood">
           <label>今日情绪<input v-model="moodForm.mood" /></label>
           <label>情绪强度<input v-model="moodForm.intensity" type="range" min="1" max="10" /></label>
@@ -2982,7 +2981,6 @@ async function editAlert(alert) {
       </section>
 
       <section v-if="currentPage === 'treehole'" class="page-panel treehole-page">
-        <h3>匿名树洞</h3>
         <form v-if="canPublishTreehole" class="module-form treehole-form" @submit.prevent="submitTreehole">
           <label>分类
             <select v-model="treeholeForm.category">
@@ -3025,7 +3023,6 @@ async function editAlert(alert) {
       </section>
 
       <section v-if="currentPage === 'assessment'" class="page-panel assessment-page">
-        <h3>心理测评</h3>
         <form v-if="canWrite" class="module-form assessment-form" @submit.prevent="submitAssessment">
           <label class="full">选择量表
             <select v-model="assessmentForm.scale">
@@ -3064,7 +3061,6 @@ async function editAlert(alert) {
       </section>
 
       <section v-if="currentPage === 'appointment'" class="page-panel appointment-page">
-        <h3>咨询预约</h3>
         <div v-if="currentRole === 'teacher'" class="appointment-board teacher-profile-board">
           <h4>教师个人资料</h4>
           <form class="module-form" @submit.prevent="submitTeacherProfile">
@@ -3206,7 +3202,6 @@ async function editAlert(alert) {
       </section>
 
       <section v-if="currentPage === 'resources'" class="module-panel page-panel">
-        <h3>心理资源</h3>
         <div class="resource-search-bar">
           <input v-model.trim="resourceSearch" type="search" placeholder="搜索文章标题、来源、分类或标签" />
           <span>优先展示与你的打卡、测评和树洞标签更相关的资源</span>
@@ -3255,7 +3250,6 @@ async function editAlert(alert) {
       </section>
 
       <section v-if="currentPage === 'alerts' && canViewAlerts" class="page-panel alerts-page">
-        <h3>危机预警</h3>
         <div v-if="alertItems.length" class="section-block">
           <div class="section-label"><span>预警列表</span><em>{{ alertItems.length }} 条 · {{ alertItems.filter(a => !a.handled).length }} 条待跟进</em></div>
           <div class="alert-list">
