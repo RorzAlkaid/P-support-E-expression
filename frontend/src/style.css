@@ -2350,6 +2350,155 @@ main,
   font-size: 18px;
 }
 
+.board-heading-row,
+.resource-search-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.board-heading-row input,
+.resource-search-bar input {
+  width: min(100%, 320px);
+  min-height: 36px;
+  padding: 0 12px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  color: var(--ink);
+  background: #ffffff;
+}
+
+.resource-search-bar {
+  margin: 10px 0 16px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.counselor-recommend-list {
+  display: grid;
+  gap: 8px;
+}
+
+.counselor-recommend-list article {
+  display: grid;
+  grid-template-columns: 38px minmax(0, 1fr) 52px;
+  gap: 10px;
+  align-items: center;
+  padding: 8px 2px;
+  border-bottom: 1px solid rgba(126, 54, 68, 0.08);
+  background: transparent;
+  cursor: pointer;
+}
+
+.counselor-recommend-list article.selected {
+  background: rgba(255, 247, 245, 0.82);
+}
+
+.counselor-recommend-list p,
+.counselor-recommend-list small,
+.topic-resource-item small {
+  margin: 2px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.counselor-recommend-list em {
+  color: var(--rose-dark);
+  font-style: normal;
+  font-weight: 800;
+  text-align: right;
+}
+
+.inline-tag-form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 6px;
+  align-items: center;
+}
+
+.counselor-recommend-list .inline-tag-form {
+  grid-column: 2 / -1;
+}
+
+.article-tag-form {
+  width: min(100%, 420px);
+  margin: 8px 0 0;
+}
+
+.tag-add-button {
+  display: inline-grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border: 1px solid rgba(216, 93, 115, 0.34);
+  border-radius: 50%;
+  color: var(--rose-dark);
+  background: #ffffff;
+  font-size: 18px;
+  font-weight: 800;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.tag-add-button:hover,
+.tag-add-button:focus-visible {
+  color: #ffffff;
+  background: var(--rose);
+}
+
+.editable-tags {
+  align-items: center;
+}
+
+.teacher-inline-tags {
+  margin-top: 6px;
+}
+
+.mini-pagination {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  align-items: center;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.mini-pagination button {
+  min-height: 28px;
+  padding: 0 10px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  color: var(--ink);
+  background: #ffffff;
+}
+
+.mini-pagination button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.inline-tag-form input {
+  min-width: 0;
+  min-height: 30px;
+  padding: 0 8px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  font-size: 12px;
+}
+
+.inline-tag-form button {
+  min-height: 30px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 6px;
+  color: #ffffff;
+  background: var(--rose);
+  font-size: 12px;
+  font-weight: 760;
+}
+
 .appointment-strip {
   display: grid;
   gap: 6px;
@@ -2357,7 +2506,7 @@ main,
 
 .appointment-strip article {
   display: grid;
-  grid-template-columns: minmax(72px, 0.6fr) minmax(96px, 0.8fr) minmax(150px, 1fr) minmax(130px, 1fr) minmax(116px, auto) 112px auto;
+  grid-template-columns: minmax(72px, 0.65fr) minmax(96px, 0.75fr) minmax(150px, 1fr) minmax(116px, auto) 112px auto;
   gap: 6px;
   align-items: center;
   min-height: 28px;
@@ -2451,7 +2600,7 @@ main,
 
 .topic-resource-item {
   display: grid;
-  grid-template-columns: minmax(220px, 0.9fr) minmax(130px, 0.45fr) minmax(280px, 1fr) minmax(140px, auto) auto;
+  grid-template-columns: minmax(180px, 0.8fr) minmax(110px, 0.4fr) minmax(220px, 1fr) minmax(140px, auto) minmax(130px, 0.55fr) auto;
   gap: 8px;
   align-items: center;
   min-height: 30px;
@@ -3524,16 +3673,27 @@ a:focus-visible {
     grid-template-columns: minmax(70px, 0.8fr) minmax(96px, 1fr) minmax(120px, 1fr) 100px auto;
   }
 
+  .counselor-recommend-list article {
+    grid-template-columns: 38px minmax(0, 1fr) 48px;
+  }
+
+  .counselor-recommend-list .inline-tag-form {
+    grid-column: 1 / -1;
+  }
+
   .appointment-strip article > span:nth-of-type(3) {
     display: none;
   }
 
   .topic-resource-item {
-    grid-template-columns: minmax(150px, 1fr) minmax(90px, 0.45fr) minmax(160px, 0.9fr);
+    grid-template-columns: 1fr;
+    align-items: stretch;
   }
 
-  .topic-resource-item .compact-tags {
-    display: none;
+  .topic-resource-item h3,
+  .topic-resource-item p,
+  .topic-resource-item span {
+    white-space: normal;
   }
 }
 

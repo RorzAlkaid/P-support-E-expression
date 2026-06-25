@@ -16,6 +16,8 @@ from .models import (
     ResourceFetchLog,
     ResourceViewLog,
     StudentProfile,
+    Tag,
+    TagSuggestion,
     TreeHolePost,
     TreeHoleReply,
 )
@@ -156,6 +158,20 @@ class StudentProfileAdmin(admin.ModelAdmin):
     list_display = ('student_no', 'user', 'college', 'grade', 'privacy_consent', 'created_at')
     list_filter = ('college', 'grade', 'privacy_consent')
     search_fields = ('student_no', 'user__username', 'user__first_name', 'user__last_name')
+
+
+@admin.register(Tag)
+class TagAdmin(admin.ModelAdmin):
+    list_display = ('name', 'is_active', 'created_by', 'updated_at')
+    list_filter = ('is_active',)
+    search_fields = ('name', 'description')
+
+
+@admin.register(TagSuggestion)
+class TagSuggestionAdmin(admin.ModelAdmin):
+    list_display = ('tag_name', 'target_type', 'target_id', 'status', 'proposer', 'reviewer', 'reviewed_at')
+    list_filter = ('status', 'target_type')
+    search_fields = ('tag_name', 'proposer__username', 'reviewer__username')
 
 
 @admin.register(Counselor)

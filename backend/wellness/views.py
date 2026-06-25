@@ -42,6 +42,8 @@ from .models import (
     ResourceFetchLog,
     ResourceViewLog,
     StudentProfile,
+    Tag,
+    TagSuggestion,
     TreeHolePost,
     TreeHoleReply,
 )
@@ -57,6 +59,8 @@ from .serializers import (
     ResourceFetchLogSerializer,
     ResourceViewLogSerializer,
     StudentProfileSerializer,
+    TagSerializer,
+    TagSuggestionSerializer,
     TreeHolePostSerializer,
     TreeHoleReplySerializer,
 )
@@ -267,6 +271,126 @@ def normalize_list_value(value):
     return [item.strip() for item in str(value or '').replace('，', ',').replace('、', ',').split(',') if item.strip()]
 
 
+def normalize_tag_name(value):
+    return str(value or '').strip()[:30]
+
+
+def normalize_tag_key(value):
+    return normalize_tag_name(value).casefold()
+
+
+def unique_tag_list(values):
+    result = []
+    seen = set()
+    for value in normalize_list_value(values):
+        name = normalize_tag_name(value)
+        key = normalize_tag_key(name)
+        if name and key not in seen:
+            result.append(name)
+            seen.add(key)
+    return result
+
+
+def append_unique_tag(values, tag_name):
+    tags = unique_tag_list(values)
+    key = normalize_tag_key(tag_name)
+    if key and key not in {normalize_tag_key(item) for item in tags}:
+        tags.append(normalize_tag_name(tag_name))
+    return tags
+
+
+def risk_level_tag(risk_level):
+    return {
+        AssessmentRecord.RISK_HIGH: '高风险',
+        AssessmentRecord.RISK_MEDIUM: '中风险',
+        AssessmentRecord.RISK_LOW: '低风险',
+    }.get(risk_level, risk_level)
+
+
+def student_tag_counter(student):
+    counter = Counter()
+    if not student:
+        return counter
+    for tag in list(student.pressure_sources or []) + list(student.preferred_topics or []):
+        counter[normalize_tag_key(tag)] += 2
+    for entry in MoodEntry.objects.filter(student=student)[:20]:
+        for tag in list(entry.pressure_sources or []) + [entry.mood]:
+            counter[normalize_tag_key(tag)] += 3
+    for record in AssessmentRecord.objects.select_related('scale').filter(student=student)[:20]:
+        for tag in list(record.result_tags or []) + list(getattr(record.scale, 'tags', []) or []) + [risk_level_tag(record.risk_level)]:
+            counter[normalize_tag_key(tag)] += 2
+    for post in TreeHolePost.objects.filter(student=student)[:20]:
+        for tag in [post.mood_tag, post.category]:
+            counter[normalize_tag_key(tag)] += 3
+    for appointment in Appointment.objects.filter(student=student)[:20]:
+        for tag in list(appointment.topic_tags or []) + [appointment.topic]:
+            counter[normalize_tag_key(tag)] += 1
+    counter.pop('', None)
+    return counter
+
+
+def score_related_tags(student_tags, target_tags):
+    target_lookup = {}
+    for tag in target_tags or []:
+        key = normalize_tag_key(tag)
+        if key:
+            target_lookup[key] = normalize_tag_name(tag)
+    related_keys = [key for key in target_lookup if key in student_tags]
+    related_score = sum(student_tags[key] for key in related_keys)
+    related_tags = [target_lookup[key] for key in sorted(related_keys, key=lambda item: student_tags[item], reverse=True)]
+    return related_score, related_tags
+
+
+def current_student_for_recommendation(request):
+    if user_role(request.user) == AccountProfile.ROLE_STUDENT:
+        return get_request_student(request)
+    student_id = request.query_params.get('student')
+    if student_id:
+        return StudentProfile.objects.filter(id=student_id).first()
+    return None
+
+
+def matches_search(text_values, query):
+    query = str(query or '').strip().casefold()
+    if not query:
+        return True
+    return query in ' '.join(str(value or '') for value in text_values).casefold()
+
+
+def attach_counselor_relation(counselor, student_tags):
+    related_score, related_tags = score_related_tags(student_tags, counselor.specialties or [])
+    counselor.related_score = related_score
+    counselor.related_tags = related_tags
+    counselor.match_score = min(72 + related_score * 8, 99)
+    return counselor
+
+
+def attach_article_relation(article, student_tags):
+    related_score, related_tags = score_related_tags(student_tags, article.tags or [])
+    article.related_score = related_score
+    article.related_tags = related_tags
+    return article
+
+
+def apply_tag_to_target(target_type, target_id, tag_name):
+    tag_name = normalize_tag_name(tag_name)
+    if target_type == TagSuggestion.TARGET_ARTICLE:
+        article = Article.objects.filter(id=target_id).first()
+        if not article:
+            return False
+        article.tags = append_unique_tag(article.tags, tag_name)
+        article.save(update_fields=['tags', 'updated_at'])
+        return True
+    if target_type == TagSuggestion.TARGET_COUNSELOR:
+        counselor = Counselor.objects.filter(id=target_id).first()
+        if not counselor:
+            return False
+        counselor.specialties = append_unique_tag(counselor.specialties, tag_name)
+        counselor.save(update_fields=['specialties', 'updated_at'])
+        return True
+    return False
+
+
 def validate_common_identity(username=None, name=None, email=None, password=None, student_no=None, grade=None, pressure_sources=None):
     if username is not None and len(username) > 20:
         return '账号不能超过20个字符。'
@@ -326,11 +450,105 @@ class CounselorViewSet(AdminManagedModelViewSet):
     queryset = Counselor.objects.all()
     serializer_class = CounselorSerializer
 
+    def list(self, request, *args, **kwargs):
+        student_tags = student_tag_counter(current_student_for_recommendation(request))
+        query = request.query_params.get('q', '')
+        counselors = [
+            attach_counselor_relation(counselor, student_tags)
+            for counselor in Counselor.objects.filter(is_active=True)
+            if matches_search([counselor.name, counselor.title, counselor.qualifications, counselor.specialties], query)
+        ]
+        counselors.sort(key=lambda item: (item.related_score, item.updated_at), reverse=True)
+        return Response(CounselorSerializer(counselors, many=True).data)
+
 
 class ArticleViewSet(AdminManagedModelViewSet):
     queryset = Article.objects.filter(is_published=True)
     serializer_class = ArticleSerializer
     pagination_class = None
+
+    def list(self, request, *args, **kwargs):
+        student_tags = student_tag_counter(current_student_for_recommendation(request))
+        query = request.query_params.get('q', '')
+        articles = [
+            attach_article_relation(article, student_tags)
+            for article in Article.objects.filter(is_published=True)
+            if matches_search([article.title, article.source, article.category, article.summary, article.tags], query)
+        ]
+        articles.sort(key=lambda item: (item.related_score, item.updated_at), reverse=True)
+        return Response(ArticleSerializer(articles, many=True).data)
+
+
+class TagViewSet(viewsets.ModelViewSet):
+    authentication_classes = [CsrfExemptSessionAuthentication]
+    queryset = Tag.objects.all()
+    serializer_class = TagSerializer
+
+    def initial(self, request, *args, **kwargs):
+        super().initial(request, *args, **kwargs)
+        if not is_read_request(request) and user_role(request.user) not in TEACHER_ADMIN_ROLES:
+            self.permission_denied(request, message='只有教师和管理员可以维护标签。')
+
+    def perform_create(self, serializer):
+        serializer.save(created_by=self.request.user if self.request.user.is_authenticated else None)
+
+
+class TagSuggestionViewSet(viewsets.ModelViewSet):
+    authentication_classes = [CsrfExemptSessionAuthentication]
+    queryset = TagSuggestion.objects.select_related('proposer', 'reviewer').all()
+    serializer_class = TagSuggestionSerializer
+
+    def list(self, request, *args, **kwargs):
+        role = user_role(request.user)
+        queryset = self.get_queryset()
+        if role not in TEACHER_ADMIN_ROLES:
+            if not request.user.is_authenticated:
+                return Response([])
+            queryset = queryset.filter(proposer=request.user)
+        return Response(TagSuggestionSerializer(queryset, many=True).data)
+
+    def create(self, request, *args, **kwargs):
+        tag_name = normalize_tag_name(request.data.get('tag_name') or request.data.get('name'))
+        target_type = request.data.get('target_type')
+        target_id = request.data.get('target_id')
+        if not tag_name or target_type not in [TagSuggestion.TARGET_ARTICLE, TagSuggestion.TARGET_COUNSELOR] or not target_id:
+            return Response({'detail': '请填写标签名称、目标类型和目标编号。'}, status=status.HTTP_400_BAD_REQUEST)
+
+        existing = Tag.objects.filter(name__iexact=tag_name, is_active=True).first()
+        if existing or user_role(request.user) in TEACHER_ADMIN_ROLES:
+            tag = existing or Tag.objects.create(name=tag_name, created_by=request.user if request.user.is_authenticated else None)
+            if not apply_tag_to_target(target_type, target_id, tag.name):
+                return Response({'detail': '目标不存在。'}, status=status.HTTP_404_NOT_FOUND)
+            return Response({'status': 'applied', 'tag': TagSerializer(tag).data})
+
+        suggestion = TagSuggestion.objects.create(
+            proposer=request.user if request.user.is_authenticated else None,
+            tag_name=tag_name,
+            target_type=target_type,
+            target_id=target_id,
+        )
+        return Response(TagSuggestionSerializer(suggestion).data, status=status.HTTP_201_CREATED)
+
+    def partial_update(self, request, *args, **kwargs):
+        if user_role(request.user) not in TEACHER_ADMIN_ROLES:
+            return Response({'detail': '只有教师和管理员可以审核标签。'}, status=status.HTTP_403_FORBIDDEN)
+        suggestion = self.get_object()
+        next_status = request.data.get('status')
+        if next_status not in [TagSuggestion.STATUS_APPROVED, TagSuggestion.STATUS_REJECTED]:
+            return Response({'detail': '审核状态只能是 approved 或 rejected。'}, status=status.HTTP_400_BAD_REQUEST)
+        suggestion.status = next_status
+        suggestion.reviewer = request.user
+        suggestion.review_note = request.data.get('review_note') or ''
+        suggestion.reviewed_at = timezone.now()
+        if next_status == TagSuggestion.STATUS_APPROVED:
+            tag, _ = Tag.objects.get_or_create(
+                name=suggestion.tag_name,
+                defaults={'created_by': request.user if request.user.is_authenticated else None},
+            )
+            if not apply_tag_to_target(suggestion.target_type, suggestion.target_id, tag.name):
+                return Response({'detail': '目标不存在。'}, status=status.HTTP_404_NOT_FOUND)
+        suggestion.save()
+        return Response(TagSuggestionSerializer(suggestion).data)
 
 
 class ExternalResourceSourceViewSet(AdminManagedModelViewSet):
@@ -999,27 +1217,15 @@ def export_insights(request, file_format=None):
 
 @api_view(['GET'])
 def counselor_recommendations(request):
-    student_id = request.query_params.get('student')
-    student_topics = []
-    if student_id:
-        student = StudentProfile.objects.filter(id=student_id).first()
-        if student:
-            student_topics = list(student.pressure_sources or []) + list(student.preferred_topics or [])
-
-    counselors = []
-    for counselor in Counselor.objects.filter(is_active=True):
-        overlap = set(student_topics) & set(counselor.specialties or [])
-        base_score = 72 + len(overlap) * 8
-        counselors.append((min(base_score, 98), counselor))
-
-    counselors.sort(key=lambda item: item[0], reverse=True)
-    data = []
-    for score, counselor in counselors[:6]:
-        item = CounselorSerializer(counselor).data
-        item['match_score'] = score
-        data.append(item)
-
-    return Response(data)
+    student_tags = student_tag_counter(current_student_for_recommendation(request))
+    query = request.query_params.get('q', '')
+    counselors = [
+        attach_counselor_relation(counselor, student_tags)
+        for counselor in Counselor.objects.filter(is_active=True)
+        if matches_search([counselor.name, counselor.title, counselor.qualifications, counselor.specialties], query)
+    ]
+    counselors.sort(key=lambda item: (item.related_score, item.match_score, item.updated_at), reverse=True)
+    return Response(CounselorSerializer(counselors[:12], many=True).data)
 
 
 @api_view(['GET'])
@@ -1086,6 +1292,12 @@ def module_center(request):
             Appointment.STATUS_FINISHED,
         ])
     alert_queryset = CrisisAlert.objects.filter(handled=False) if role in [AccountProfile.ROLE_TEACHER, AccountProfile.ROLE_ADMIN] else CrisisAlert.objects.none()
+    student_tags = student_tag_counter(student)
+    recommended_counselors = [
+        attach_counselor_relation(counselor, student_tags)
+        for counselor in Counselor.objects.filter(is_active=True)
+    ]
+    recommended_counselors.sort(key=lambda item: (item.related_score, item.match_score, item.updated_at), reverse=True)
     return Response({
         'student': StudentProfileSerializer(student).data if student else None,
         'teacher_counselor': CounselorSerializer(teacher_counselor).data if teacher_counselor else None,
@@ -1095,7 +1307,7 @@ def module_center(request):
         'scales': AssessmentScaleSerializer(AssessmentScale.objects.all(), many=True).data,
         'records': AssessmentRecordSerializer(record_queryset[:12], many=True).data,
         'appointments': AppointmentSerializer(appointment_queryset[:12], many=True).data,
-        'counselors': CounselorSerializer(Counselor.objects.filter(is_active=True), many=True).data,
+        'counselors': CounselorSerializer(recommended_counselors, many=True).data,
         'alerts': CrisisAlertSerializer(alert_queryset[:6], many=True).data,
     })
 
@@ -1161,6 +1373,7 @@ def submit_assessment(request):
         risk_level=risk_level,
         answers=answers,
         suggestion=suggestion,
+        result_tags=unique_tag_list(list(scale.tags or []) + [risk_level_tag(risk_level)]),
     )
     if risk_level == 'high':
         CrisisAlert.objects.create(student=student, level='warning', trigger=f'{scale.name} 得分较高，需要跟进。')
@@ -1192,6 +1405,7 @@ def create_appointment(request):
         student=student,
         counselor=counselor,
         scheduled_at=scheduled_at,
+        topic_tags=unique_tag_list(request.data.get('topic_tags') or request.data.get('topic')),
         topic=request.data.get('topic') or '心理支持预约',
         confidential_note=request.data.get('confidential_note') or '',
     )

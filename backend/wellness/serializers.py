@@ -13,6 +13,8 @@ from .models import (
     ResourceFetchLog,
     ResourceViewLog,
     StudentProfile,
+    Tag,
+    TagSuggestion,
     TreeHolePost,
     TreeHoleReply,
 )
@@ -40,6 +42,8 @@ class StudentProfileSerializer(serializers.ModelSerializer):
 
 class CounselorSerializer(serializers.ModelSerializer):
     match_score = serializers.IntegerField(read_only=True)
+    related_score = serializers.IntegerField(read_only=True)
+    related_tags = serializers.ListField(child=serializers.CharField(), read_only=True)
     username = serializers.CharField(source='user.username', read_only=True)
 
     class Meta:
@@ -58,10 +62,15 @@ class CounselorSerializer(serializers.ModelSerializer):
             'fetched_at',
             'is_active',
             'match_score',
+            'related_score',
+            'related_tags',
         ]
 
 
 class ArticleSerializer(serializers.ModelSerializer):
+    related_score = serializers.IntegerField(read_only=True)
+    related_tags = serializers.ListField(child=serializers.CharField(), read_only=True)
+
     class Meta:
         model = Article
         fields = [
@@ -76,7 +85,40 @@ class ArticleSerializer(serializers.ModelSerializer):
             'fetched_at',
             'is_published',
             'updated_at',
+            'related_score',
+            'related_tags',
         ]
+
+
+class TagSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Tag
+        fields = ['id', 'name', 'description', 'is_active', 'created_by', 'created_at', 'updated_at']
+        read_only_fields = ['created_by', 'created_at', 'updated_at']
+
+
+class TagSuggestionSerializer(serializers.ModelSerializer):
+    proposer_name = serializers.CharField(source='proposer.username', read_only=True)
+    reviewer_name = serializers.CharField(source='reviewer.username', read_only=True)
+
+    class Meta:
+        model = TagSuggestion
+        fields = [
+            'id',
+            'proposer',
+            'proposer_name',
+            'reviewer',
+            'reviewer_name',
+            'tag_name',
+            'target_type',
+            'target_id',
+            'status',
+            'review_note',
+            'reviewed_at',
+            'created_at',
+            'updated_at',
+        ]
+        read_only_fields = ['proposer', 'reviewer', 'reviewed_at', 'created_at', 'updated_at']
 
 
 class ExternalResourceSourceSerializer(serializers.ModelSerializer):
@@ -113,7 +155,7 @@ class ResourceViewLogSerializer(serializers.ModelSerializer):
 class AssessmentScaleSerializer(serializers.ModelSerializer):
     class Meta:
         model = AssessmentScale
-        fields = ['id', 'name', 'code', 'description', 'questions', 'max_score']
+        fields = ['id', 'name', 'code', 'description', 'tags', 'questions', 'max_score']
 
 
 class AssessmentRecordSerializer(serializers.ModelSerializer):
@@ -132,6 +174,7 @@ class AssessmentRecordSerializer(serializers.ModelSerializer):
             'risk_level',
             'answers',
             'suggestion',
+            'result_tags',
             'created_at',
         ]
 
@@ -171,6 +214,7 @@ class AppointmentSerializer(serializers.ModelSerializer):
             'counselor_specialties',
             'scheduled_at',
             'topic',
+            'topic_tags',
             'status',
             'confidential_note',
             'created_at',

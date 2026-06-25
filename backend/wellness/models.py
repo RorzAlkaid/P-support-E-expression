@@ -193,6 +193,21 @@ class Counselor(TimeStampedModel):
         return self.name
 
 
+class Tag(TimeStampedModel):
+    name = models.CharField(max_length=30, unique=True, verbose_name='tag name')
+    description = models.TextField(blank=True, verbose_name='tag description')
+    is_active = models.BooleanField(default=True, verbose_name='is active')
+    created_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name='created_tags', verbose_name='created by')
+
+    class Meta:
+        verbose_name = 'tag'
+        verbose_name_plural = 'tags'
+        ordering = ['name']
+
+    def __str__(self):
+        return self.name
+
+
 class Article(TimeStampedModel):
     title = models.CharField(max_length=120, verbose_name='标题')
     source = models.CharField(max_length=120, blank=True, verbose_name='来源')
@@ -272,6 +287,7 @@ class ResourceViewLog(TimeStampedModel):
 
 
 class AssessmentScale(TimeStampedModel):
+    tags = models.JSONField(default=list, blank=True, verbose_name='tags')
     name = models.CharField(max_length=80, verbose_name='量表名称')
     code = models.CharField(max_length=30, unique=True, verbose_name='量表编码')
     description = models.TextField(blank=True, verbose_name='说明')
@@ -287,6 +303,7 @@ class AssessmentScale(TimeStampedModel):
 
 
 class AssessmentRecord(TimeStampedModel):
+    result_tags = models.JSONField(default=list, blank=True, verbose_name='result tags')
     RISK_LOW = 'low'
     RISK_MEDIUM = 'medium'
     RISK_HIGH = 'high'
@@ -372,6 +389,7 @@ class TreeHoleReply(TimeStampedModel):
 
 
 class Appointment(TimeStampedModel):
+    topic_tags = models.JSONField(default=list, blank=True, verbose_name='topic tags')
     STATUS_PENDING = 'pending'
     STATUS_CONFIRMED = 'confirmed'
     STATUS_FINISHED = 'finished'
@@ -397,6 +415,40 @@ class Appointment(TimeStampedModel):
 
     def __str__(self):
         return f'{self.student} -> {self.counselor} {self.scheduled_at:%Y-%m-%d %H:%M}'
+
+
+class TagSuggestion(TimeStampedModel):
+    TARGET_ARTICLE = 'article'
+    TARGET_COUNSELOR = 'counselor'
+    TARGET_CHOICES = [
+        (TARGET_ARTICLE, 'article'),
+        (TARGET_COUNSELOR, 'counselor'),
+    ]
+    STATUS_PENDING = 'pending'
+    STATUS_APPROVED = 'approved'
+    STATUS_REJECTED = 'rejected'
+    STATUS_CHOICES = [
+        (STATUS_PENDING, 'pending'),
+        (STATUS_APPROVED, 'approved'),
+        (STATUS_REJECTED, 'rejected'),
+    ]
+
+    proposer = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name='tag_suggestions', verbose_name='proposer')
+    reviewer = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name='reviewed_tag_suggestions', verbose_name='reviewer')
+    tag_name = models.CharField(max_length=30, verbose_name='tag name')
+    target_type = models.CharField(max_length=20, choices=TARGET_CHOICES, verbose_name='target type')
+    target_id = models.PositiveIntegerField(verbose_name='target id')
+    status = models.CharField(max_length=16, choices=STATUS_CHOICES, default=STATUS_PENDING, verbose_name='status')
+    review_note = models.TextField(blank=True, verbose_name='review note')
+    reviewed_at = models.DateTimeField(null=True, blank=True, verbose_name='reviewed at')
+
+    class Meta:
+        verbose_name = 'tag suggestion'
+        verbose_name_plural = 'tag suggestions'
+        ordering = ['status', '-created_at']
+
+    def __str__(self):
+        return f'{self.tag_name} -> {self.target_type}#{self.target_id}'
 
 
 class CrisisAlert(TimeStampedModel):

@@ -20,6 +20,14 @@ const insightLoading = ref(false)
 const insightMessage = ref('')
 const counselors = ref([])
 const articles = ref([])
+const tags = ref([])
+const counselorSearch = ref('')
+const resourceSearch = ref('')
+const counselorPage = ref(1)
+const counselorPageSize = 4
+const tagDrafts = ref({})
+const tagSuggestionMessage = ref('')
+const activeTagEditor = ref('')
 const trendChartRef = ref(null)
 const pressureChartRef = ref(null)
 const riskChartRef = ref(null)
@@ -369,17 +377,58 @@ const canReplyTreehole = computed(() => ['student', 'teacher', 'admin'].includes
 const currentArticle = computed(() => articles.value.find((item) => String(item.id) === String(currentArticleId.value)))
 const homeCounselors = computed(() => counselors.value.slice(0, 6))
 const homeArticles = computed(() => articles.value.slice(0, 6))
-const resourceTotalPages = computed(() => Math.max(1, Math.ceil(articles.value.length / resourcePageSize)))
+const recommendedCounselors = computed(() => filterByKeyword(moduleData.value?.counselors || counselors.value, counselorSearch.value, ['name', 'title', 'qualifications', 'specialties', 'related_tags']))
+const counselorTotalPages = computed(() => Math.max(1, Math.ceil(recommendedCounselors.value.length / counselorPageSize)))
+const pagedRecommendedCounselors = computed(() => {
+  const page = Math.min(counselorPage.value, counselorTotalPages.value)
+  const start = (page - 1) * counselorPageSize
+  return recommendedCounselors.value.slice(start, start + counselorPageSize)
+})
+const filteredArticles = computed(() => filterByKeyword(articles.value, resourceSearch.value, ['title', 'source', 'category', 'summary', 'tags', 'related_tags']))
+const resourceTotalPages = computed(() => Math.max(1, Math.ceil(filteredArticles.value.length / resourcePageSize)))
 const pagedArticles = computed(() => {
   const page = Math.min(resourcePage.value, resourceTotalPages.value)
   const start = (page - 1) * resourcePageSize
-  return articles.value.slice(start, start + resourcePageSize)
+  return filteredArticles.value.slice(start, start + resourcePageSize)
 })
 const visibleAppointments = computed(() => {
   const appointments = moduleData.value?.appointments || []
   if (['teacher', 'admin'].includes(currentRole.value)) return appointments
   return appointments.filter((item) => !['pending', 'cancelled'].includes(item.status))
 })
+
+function filterByKeyword(items, keyword, fields) {
+  const normalized = String(keyword || '').trim().toLowerCase()
+  if (!normalized) return items
+  return items.filter((item) => {
+    const text = fields.map((field) => {
+      const value = item?.[field]
+      return Array.isArray(value) ? value.join(' ') : value
+    }).join(' ').toLowerCase()
+    return text.includes(normalized)
+  })
+}
+
+function tagEditorKey(targetType, targetId) {
+  return `${targetType}-${targetId}`
+}
+
+function availableUnusedTags(currentTags = []) {
+  const used = new Set((currentTags || []).map((tag) => String(tag).trim().toLowerCase()).filter(Boolean))
+  return tags.value.filter((tag) => {
+    const name = String(tag.name || '').trim()
+    return name && tag.is_active !== false && !used.has(name.toLowerCase())
+  })
+}
+
+function toggleTagEditor(targetType, targetId) {
+  const key = tagEditorKey(targetType, targetId)
+  activeTagEditor.value = activeTagEditor.value === key ? '' : key
+}
+
+function changeCounselorPage(page) {
+  counselorPage.value = Math.min(Math.max(1, page), counselorTotalPages.value)
+}
 const selectedStudentProfile = computed(() => selectedAlertDetail.value?.student || null)
 const readonlyReason = computed(() => {
   if (currentRole.value === 'guest') return '未登录用户只能浏览已经录入的数据，不能新增或修改。'
@@ -562,13 +611,14 @@ function startExperience() {
 
 async function loadBackendData() {
   try {
-    const [dashboardRes, trendRes, pressureRes, counselorsRes, articlesRes, moduleRes] = await Promise.all([
+    const [dashboardRes, trendRes, pressureRes, counselorsRes, articlesRes, moduleRes, tagsRes] = await Promise.all([
       axios.get('/api/dashboard/'),
       axios.get('/api/mood-trend/'),
       axios.get('/api/pressure-distribution/'),
-      axios.get('/api/recommendations/counselors/?student=1'),
+      axios.get('/api/recommendations/counselors/'),
       axios.get('/api/articles/'),
       axios.get('/api/modules/'),
+      axios.get('/api/tags/'),
     ])
 
     dashboard.value = dashboardRes.data
@@ -576,6 +626,7 @@ async function loadBackendData() {
     pressureData.value = pressureRes.data
     counselors.value = counselorsRes.data
     articles.value = articlesRes.data.results ?? articlesRes.data
+    tags.value = tagsRes.data.results ?? tagsRes.data
     moduleData.value = moduleRes.data
     syncTeacherProfileForm(moduleRes.data.teacher_counselor)
     const firstScale = moduleRes.data.scales?.[0]
@@ -831,6 +882,14 @@ onMounted(() => {
       })
     }
   })
+})
+
+watch(resourceSearch, () => {
+  resourcePage.value = 1
+})
+
+watch(counselorSearch, () => {
+  counselorPage.value = 1
 })
 
 onUnmounted(() => {
@@ -1335,6 +1394,36 @@ async function submitAppointment() {
     await refreshModules()
   } catch (error) {
     moduleMessage.value = error.response?.data?.detail || '预约提交失败，请检查时间和内容后重试。'
+  }
+}
+
+async function submitTargetTag(targetType, targetId) {
+  const key = `${targetType}-${targetId}`
+  const tagName = String(tagDrafts.value[key] || '').trim()
+  if (!tagName) {
+    tagSuggestionMessage.value = '请先填写标签。'
+    return
+  }
+  try {
+    const response = await axios.post('/api/tag-suggestions/', {
+      target_type: targetType,
+      target_id: targetId,
+      tag_name: tagName,
+    })
+    tagDrafts.value[key] = ''
+    tagSuggestionMessage.value = response.data.status === 'applied'
+      ? '标签已添加。'
+      : '新标签已提交，等待教师或管理员审核。'
+    await refreshModules()
+    const [articlesRes, tagsRes] = await Promise.all([
+      axios.get('/api/articles/'),
+      axios.get('/api/tags/'),
+    ])
+    articles.value = articlesRes.data.results ?? articlesRes.data
+    tags.value = tagsRes.data.results ?? tagsRes.data
+    activeTagEditor.value = ''
+  } catch (error) {
+    tagSuggestionMessage.value = error.response?.data?.detail || '标签提交失败。'
   }
 }
 
@@ -2671,15 +2760,47 @@ async function editAlert(alert) {
           </section>
         </div>
 
+        <div class="appointment-board counselor-recommend-board">
+          <div class="board-heading-row">
+            <h4>推荐咨询师列表</h4>
+            <input v-model.trim="counselorSearch" type="search" placeholder="搜索咨询师、标签或擅长方向" />
+          </div>
+          <div v-if="recommendedCounselors.length" class="counselor-recommend-list">
+            <article v-for="item in pagedRecommendedCounselors" :key="`recommended-${item.id}`" :class="{ selected: appointmentForm.counselor === item.id }" @click="appointmentForm.counselor = item.id">
+              <span class="counselor-avatar small" :style="{ background: item.avatar_color }">{{ item.name.slice(0, 1) }}</span>
+              <div>
+                <strong>{{ item.name }} · {{ item.title }}</strong>
+                <p>{{ item.qualifications || '暂无资质说明' }}</p>
+                <div class="tag-list compact-tags editable-tags teacher-inline-tags">
+                  <span v-for="tag in item.specialties.slice(0, 5)" :key="tag">{{ tag }}</span>
+                  <button class="tag-add-button" type="button" @click.stop="toggleTagEditor('counselor', item.id)">+</button>
+                </div>
+              </div>
+              <em>{{ item.match_score || 72 }}%</em>
+              <form v-if="activeTagEditor === tagEditorKey('counselor', item.id)" class="inline-tag-form" @submit.prevent.stop="submitTargetTag('counselor', item.id)">
+                <input v-model.trim="tagDrafts[tagEditorKey('counselor', item.id)]" :list="`available-tags-${tagEditorKey('counselor', item.id)}`" placeholder="选择或输入标签" @click.stop />
+                <datalist :id="`available-tags-${tagEditorKey('counselor', item.id)}`">
+                  <option v-for="tag in availableUnusedTags(item.specialties)" :key="tag.id || tag.name" :value="tag.name"></option>
+                </datalist>
+                <button type="submit" @click.stop>提交</button>
+              </form>
+            </article>
+          </div>
+          <div v-if="recommendedCounselors.length > counselorPageSize" class="mini-pagination">
+            <button type="button" :disabled="counselorPage <= 1" @click="changeCounselorPage(counselorPage - 1)">上一页</button>
+            <span>{{ counselorPage }} / {{ counselorTotalPages }}</span>
+            <button type="button" :disabled="counselorPage >= counselorTotalPages" @click="changeCounselorPage(counselorPage + 1)">下一页</button>
+          </div>
+          <p v-else class="empty-state">未找到匹配的咨询师。</p>
+          <p v-if="tagSuggestionMessage" class="module-message">{{ tagSuggestionMessage }}</p>
+        </div>
+
         <div class="appointment-board appointment-info-board">
           <h4>同学预约信息</h4>
           <div v-if="visibleAppointments.length" class="appointment-strip">
             <article v-for="item in visibleAppointments" :key="`strip-${item.id}`">
               <strong>{{ item.student_name }}</strong>
               <span>{{ item.counselor_name }}</span>
-              <div class="tag-list appointment-tags">
-                <span v-for="tag in (item.counselor_specialties || []).slice(0, 3)" :key="tag">{{ tag }}</span>
-              </div>
               <span>{{ item.topic }}</span>
               <span>{{ formatDateTime(item.scheduled_at) }}</span>
               <label v-if="canOperateAppointments" class="status-select compact-status">
@@ -2702,7 +2823,7 @@ async function editAlert(alert) {
           <form class="module-form" @submit.prevent="submitAppointment">
             <label>咨询师
               <select v-model="appointmentForm.counselor">
-                <option v-for="item in moduleData?.counselors" :key="item.id" :value="item.id">{{ item.name }} · {{ item.title }}</option>
+                <option v-for="item in recommendedCounselors" :key="item.id" :value="item.id">{{ item.name }} · {{ item.title }}</option>
               </select>
             </label>
             <label>预约时间
@@ -2721,6 +2842,10 @@ async function editAlert(alert) {
 
       <section v-if="currentPage === 'resources'" class="module-panel page-panel">
         <h3>心理资源</h3>
+        <div class="resource-search-bar">
+          <input v-model.trim="resourceSearch" type="search" placeholder="搜索文章标题、来源、分类或标签" />
+          <span>优先展示与你的打卡、测评和树洞标签更相关的资源</span>
+        </div>
         <div class="topic-resource-list">
           <article v-for="article in pagedArticles" :key="article.id" class="topic-resource-item">
             <h3 class="article-title-link" @click="openArticle(article)">{{ article.title }}</h3>
@@ -2729,6 +2854,7 @@ async function editAlert(alert) {
             <div class="tag-list compact-tags">
               <span v-for="tag in article.tags.slice(0, 4)" :key="tag">{{ tag }}</span>
             </div>
+            <small v-if="article.related_tags?.length">关联：{{ article.related_tags.join('、') }}</small>
             <button v-if="canManage" class="danger-button" type="button" @click.stop="adminDelete(`/api/articles/${article.id}/`)">删除</button>
           </article>
         </div>
@@ -2744,9 +2870,18 @@ async function editAlert(alert) {
           <span class="eyebrow">{{ currentArticle.category }} · {{ currentArticle.source }}</span>
           <h2>{{ currentArticle.title }}</h2>
           <p class="article-summary">{{ currentArticle.summary }}</p>
-          <div class="tag-list">
+          <div class="tag-list editable-tags">
             <span v-for="tag in currentArticle.tags" :key="tag">{{ tag }}</span>
+            <button class="tag-add-button" type="button" @click="toggleTagEditor('article', currentArticle.id)">+</button>
           </div>
+          <form v-if="activeTagEditor === tagEditorKey('article', currentArticle.id)" class="inline-tag-form article-tag-form" @submit.prevent="submitTargetTag('article', currentArticle.id)">
+            <input v-model.trim="tagDrafts[tagEditorKey('article', currentArticle.id)]" :list="`available-tags-${tagEditorKey('article', currentArticle.id)}`" placeholder="选择或输入标签" />
+            <datalist :id="`available-tags-${tagEditorKey('article', currentArticle.id)}`">
+              <option v-for="tag in availableUnusedTags(currentArticle.tags)" :key="tag.id || tag.name" :value="tag.name"></option>
+            </datalist>
+            <button type="submit">提交标签</button>
+          </form>
+          <p v-if="tagSuggestionMessage" class="module-message">{{ tagSuggestionMessage }}</p>
           <article class="article-content">
             <p v-for="paragraph in currentArticle.content.split('\n').filter(Boolean)" :key="paragraph">{{ paragraph }}</p>
           </article>

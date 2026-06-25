@@ -5,6 +5,8 @@ from . import views
 
 router = DefaultRouter()
 router.register('students', views.StudentProfileViewSet)
+router.register('tags', views.TagViewSet)
+router.register('tag-suggestions', views.TagSuggestionViewSet)
 router.register('counselors', views.CounselorViewSet)
 router.register('articles', views.ArticleViewSet)
 router.register('external-resource-sources', views.ExternalResourceSourceViewSet)
