@@ -1,12 +1,12 @@
 # 大学生心理支持与情绪表达平台 — 心晴校园
 
-基于 Django + Django REST framework + Vue 3 + Vite 的校园心理健康服务平台。面向学生、心理教师和管理员，提供情绪打卡、匿名树洞、心理测评、咨询预约、心理资源、AI 倾听、数据洞察、风险预警和后台管理等一体化功能。
+基于 Django + Django REST Framework + Vue 3 + Vite 的校园心理健康服务平台。面向学生、心理教师和管理员，提供情绪打卡、匿名树洞、心理测评、咨询预约、心理资源、AI 倾听、数据洞察、风险预警和后台管理等一体化功能。
 
 ## 功能总览
 
 ### 学生端
 - **情绪打卡** — 记录每日情绪、强度、睡眠质量、压力来源和私密日记，自动生成近一周趋势图
-- **匿名树洞** — 匿名发布倾诉内容，同伴或咨询师可回复；点击 ♥ 一键支持同学，详情页展示完整回复墙
+- **匿名树洞** — 匿名发布倾诉内容，学生回复匿名显示为"同伴支持者"，教师回复显示真实姓名并标"教师/咨询师"徽章；点击 ♥ 一键支持同学
 - **AI 倾听** — 接入兼容 OpenAI Chat Completions 的大模型，提供即时对话陪伴、情绪梳理和自助建议；支持浏览器语音识别输入
 - **心理测评** — 通过量表自评生成得分、风险等级和分层建议
 - **咨询预约** — 按咨询师、时间和主题提交预约，查看预约状态和咨询师匹配推荐
@@ -17,7 +17,7 @@
 - 维护个人咨询师资料（职称、擅长领域、可预约时段）
 - 管理教师邀请码
 - 查看和处理危机预警，查看预警学生完整数据详情
-- 树洞回复自动标注「咨询师」身份
+- 树洞回复自动标注"教师/咨询师"身份并显示真实姓名
 
 ### 管理员端
 - 将任意学生一键添加为咨询师
@@ -33,16 +33,17 @@
 - **页面淡入** — 标题、卡片、面板等元素滚动进入视口时平滑淡入升起
 - **图表动画** — 折线图描摹绘制、雷达图中心扩散、饼图扇区依次弹出、柱状图底部升起，每次滚入重播
 - **支持反馈** — 树洞 ♥ 按钮 hover 放大、点击即时 +1，低门槛传递同伴关怀
+- **移动端响应式** — 支持手机/平板等小屏设备，汉堡菜单导航，布局自适应适配
 
 ## 技术栈
 
 | 层 | 技术 |
 |----|------|
 | 后端框架 | Django 5.2 + Django REST Framework 3.17 |
-| 数据库 | SQLite（开发）/ 可切换 MySQL、PostgreSQL |
+| 数据库 | SQLite（开发）/ 可切换 MySQL |
 | 后台管理 | Django Admin + SimpleUI |
 | 跨域 | django-cors-headers |
-| 前端框架 | Vue 3（Composition API）+ Pinia |
+| 前端框架 | Vue 3（Composition API） |
 | 构建工具 | Vite 8 |
 | HTTP 客户端 | Axios |
 | 图表 | ECharts 6 |
@@ -60,17 +61,17 @@ P-support-E-expression/
 │   │   └── wsgi.py
 │   ├── wellness/            # 主应用
 │   │   ├── management/commands/
-│   │   │   ├── seed_demo.py                     # 初始化数据
+│   │   │   ├── seed_demo.py                     # 初始化演示数据
 │   │   │   ├── sync_authoritative_counselors.py # 同步咨询师
 │   │   │   ├── sync_authoritative_resources.py  # 同步心理资源
 │   │   │   └── sync_tags.py                     # 同步标签
 │   │   ├── static/admin/js/
 │   │   │   └── ai_chat_model_switcher.js        # AI 模型动态切换
-│   │   ├── migrations/      # 数据库迁移（13 个）
+│   │   ├── migrations/      # 数据库迁移
 │   │   ├── admin.py         # Django Admin 配置
-│   │   ├── models.py        # 数据模型（18 个）
+│   │   ├── models.py        # 数据模型
 │   │   ├── serializers.py   # DRF 序列化器
-│   │   ├── urls.py          # API 路由（55+ 端点）
+│   │   ├── urls.py          # API 路由
 │   │   ├── views.py         # 业务逻辑
 │   │   └── tests.py         # 测试
 │   ├── manage.py
@@ -78,9 +79,9 @@ P-support-E-expression/
 ├── frontend/
 │   ├── src/
 │   │   ├── assets/          # 图片、Logo
-│   │   ├── App.vue          # 单文件全应用（~3600 行）
+│   │   ├── App.vue          # 单文件全应用
 │   │   ├── main.js          # Vue 入口
-│   │   └── style.css        # 全局样式（~4900 行）
+│   │   └── style.css        # 全局样式（含移动端响应式）
 │   ├── dist/                # 生产构建产物
 │   ├── index.html
 │   ├── vite.config.js
@@ -107,7 +108,7 @@ P-support-E-expression/
 | ResourceViewLog | 学生资源浏览记录 |
 | MoodEntry | 情绪打卡记录 |
 | TreeHolePost | 匿名树洞帖子（含 support_count 支持计数） |
-| TreeHoleReply | 树洞回复（同伴 / 咨询师） |
+| TreeHoleReply | 树洞回复（同伴支持者 / 教师/咨询师） |
 | AssessmentScale | 心理量表 |
 | AssessmentRecord | 测评记录 |
 | Appointment | 咨询预约 |
@@ -133,7 +134,7 @@ pip install -r requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple
 cd backend
 python manage.py migrate
 
-# 导入初始化数据（含测试账号）
+# 导入演示数据（含测试账号）
 python manage.py seed_demo
 
 # 启动服务
@@ -169,7 +170,7 @@ npm run dev
 支持 OpenAI、DeepSeek 及兼容 Chat Completions 格式的接口。
 
 **方式一：后台管理界面**
-管理员登录后进入「AI 倾听对话」页面 → 展开管理面板 → 选择服务商 → 从预设模型下拉框选择或输入自定义模型 → 填写 API Key。
+管理员登录后进入"AI 倾听对话"页面 → 展开管理面板 → 选择服务商 → 从预设模型下拉框选择或输入自定义模型 → 填写 API Key。
 
 **方式二：环境变量**
 ```powershell
@@ -192,8 +193,8 @@ $env:AI_CHAT_TIMEOUT="30"
 | 教师 | 需要教师邀请码 |
 | 管理员 | 需要管理员邀请码 |
 
-- 邀请码由教师/管理员在「个人资料」页面维护
-- 点击「生成随机码」创建 16 位邀请码，也可手动输入自定义码
+- 邀请码由教师/管理员在"个人资料"页面维护
+- 点击"生成随机码"创建 16 位邀请码，也可手动输入自定义码
 - 锁定后复制分享，解锁立即失效
 - 一次性使用：注册后自动消耗
 
@@ -203,9 +204,9 @@ $env:AI_CHAT_TIMEOUT="30"
 
 | 方式 | 说明 |
 |------|------|
-| **匿名倾诉** | 学生以「匿名同学」身份发布困扰 |
+| **匿名倾诉** | 学生以"匿名同学"身份发布困扰 |
 | **♥ 一键支持** | 列表和详情页均可点击支持，即时 +1 反馈 |
-| **同伴回复** | 学生回复显示为「同伴支持者」，教师回复标「咨询师」 |
+| **同伴回复** | 学生回复显示为"同伴支持者"，教师回复显示真实姓名并标"教师/咨询师"徽章 |
 | **风险守护** | 含自伤/自杀关键词自动标记并创建危机预警通知教师 |
 
 ## API 接口
@@ -228,7 +229,7 @@ $env:AI_CHAT_TIMEOUT="30"
 | POST | `/api/modules/moods/` | 提交情绪打卡 |
 | POST | `/api/modules/treeholes/` | 发布树洞 |
 | POST | `/api/modules/treeholes/:id/reply/` | 回复树洞 |
-| POST | `/api/modules/treeholes/:id/support/` | 🆕 支持树洞（+1） |
+| POST | `/api/modules/treeholes/:id/support/` | 支持树洞（+1） |
 | POST | `/api/modules/assessments/` | 提交测评 |
 | POST | `/api/modules/appointments/` | 创建预约 |
 
@@ -269,7 +270,7 @@ cd backend
 # 系统检查
 python manage.py check
 
-# 导入初始化数据
+# 导入演示数据
 python manage.py seed_demo
 
 # 同步标签（从 JSON 字段到 Tag 表）
@@ -317,10 +318,10 @@ python manage.py test wellness.tests
    DJANGO_ALLOWED_HOSTS=your-domain.com
    CORS_ALLOWED_ORIGINS=https://your-domain.com
    ```
-2. **数据库** — 替换 SQLite 为 MySQL / PostgreSQL
+2. **数据库** — 替换 SQLite 为 MySQL
 3. **AI Key** — 通过环境变量 `AI_CHAT_API_KEY` 或 Django Admin 后台配置
 4. **前端构建** — `npm run build` 后将 `dist/` 部署到 Nginx 或 Django 静态文件目录
-5. **爬虫同步** — `sync_authoritative_*` 命令用于课程设计场景，生产环境请评估合规性
+5. **Docker 部署** — 项目支持 Docker Compose 一键部署（Django + MySQL + Nginx），详见部署文档
 6. **CSRF** — 当前 SPA 开发模式使用 `CsrfExemptSessionAuthentication`，生产同域部署时可启用标准 CSRF
 
 ## 开源协作

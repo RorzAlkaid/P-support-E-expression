@@ -11,6 +11,7 @@ const inkX = ref('50vw')
 const inkY = ref('28vh')
 const inkActive = ref(0.38)
 const scrollShift = ref('0px')
+const mobileNavOpen = ref(false)
 const loading = ref(true)
 const dashboard = ref(null)
 const moodTrend = ref([])
@@ -25,7 +26,6 @@ const counselorSearch = ref('')
 const resourceSearch = ref('')
 const counselorPage = ref(1)
 const counselorPageSize = 4
-const tagDrafts = ref({})
 const tagSuggestionMessage = ref('')
 const tagPopup = ref({
   visible: false,
@@ -402,7 +402,6 @@ const canUseAiChat = computed(() => ['student', 'teacher', 'admin'].includes(cur
 const canManage = computed(() => currentRole.value === 'admin')
 const adminUrl = computed(() => import.meta.env.DEV ? 'http://127.0.0.1:8000/admin/' : '/admin/')
 const canViewAlerts = computed(() => ['teacher', 'admin'].includes(currentRole.value))
-const canViewInsights = computed(() => true)
 const canDownloadInsights = computed(() => ['teacher', 'admin'].includes(currentRole.value))
 const canOperateAppointments = computed(() => ['teacher', 'admin'].includes(currentRole.value))
 const canPublishTreehole = computed(() => ['student', 'admin'].includes(currentRole.value))
@@ -481,10 +480,6 @@ function filterByKeyword(items, keyword, fields) {
     }).join(' ').toLowerCase()
     return text.includes(normalized)
   })
-}
-
-function tagEditorKey(targetType, targetId) {
-  return `${targetType}-${targetId}`
 }
 
 function availableUnusedTags(currentTags = []) {
@@ -690,6 +685,7 @@ function reloadIntoPage(hashPath, { homeSection } = {}) {
 }
 
 function navigate(page) {
+  mobileNavOpen.value = false
   if (!guardPageAccess(page)) {
     return
   }
@@ -792,8 +788,6 @@ async function submitTreeholeReplyFromDetail() {
   if (!content) return
   await axios.post(`/api/modules/treeholes/${currentTreeholeId.value}/reply/`, {
     content,
-    responder_name: currentUser.value?.name || '同伴支持者',
-    is_counselor_reply: currentRole.value === 'teacher',
   })
   replyForms.value[`treehole-${currentTreeholeId.value}`] = ''
   moduleMessage.value = '回应已发送。'
@@ -2087,13 +2081,6 @@ async function permittedPatch(url, payload) {
   await refreshModules()
 }
 
-async function editTreehole(post) {
-  const content = window.prompt('修改树洞内容', post.content)
-  if (content !== null) {
-    await adminPatch(`/api/treehole-posts/${post.id}/`, { content })
-  }
-}
-
 function statusLabel(status) {
   const labels = {
     pending: '待确认',
@@ -2365,7 +2352,7 @@ async function editAlert(alert) {
         </form>
       </div>
     </Transition>
-    <header class="site-header">
+    <header class="site-header" :class="{ 'nav-open': mobileNavOpen }">
       <a class="brand" href="#/home" aria-label="心晴校园首页" @click.prevent="navigate('home')">
         <span class="brand-mark">
           <img :src="logoMark" alt="" />
@@ -2373,7 +2360,11 @@ async function editAlert(alert) {
         <strong>心晴校园</strong>
       </a>
 
-      <nav class="site-nav" aria-label="网站导航">
+      <button class="mobile-menu-btn" type="button" :aria-expanded="mobileNavOpen" aria-label="菜单" @click.stop="mobileNavOpen = !mobileNavOpen">
+        <span></span><span></span><span></span>
+      </button>
+
+      <nav class="site-nav" aria-label="网站导航" :class="{ visible: mobileNavOpen }">
         <a href="#/home" @click.prevent="navigate('home')">首页</a>
         <a href="#/mood" @click.prevent="navigate('mood')">情绪打卡</a>
         <a href="#/treehole" @click.prevent="navigate('treehole')">匿名树洞</a>
@@ -2603,7 +2594,7 @@ async function editAlert(alert) {
           <p>系统根据学生压力来源、关注主题与咨询师擅长领域智能计算匹配度，推荐最适合的心理咨询师。</p>
         </div>
 
-        <div class="compact-list support-list">
+        <div class="compact-list">
           <article
             v-for="(counselor, index) in homeCounselors"
             :key="counselor.id"
@@ -3460,7 +3451,7 @@ async function editAlert(alert) {
               <article v-for="reply in currentTreehole.replies" :key="reply.id" class="treehole-reply-bubble" :class="{ counselor: reply.is_counselor_reply }">
                 <div class="reply-bubble-head">
                   <strong>{{ reply.responder_name }}</strong>
-                  <small v-if="reply.is_counselor_reply" class="counselor-badge">咨询师</small>
+                  <small v-if="reply.is_counselor_reply" class="counselor-badge">教师/咨询师</small>
                   <small>{{ formatDateTime(reply.created_at) }}</small>
                 </div>
                 <p>{{ reply.content }}</p>

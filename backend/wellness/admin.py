@@ -172,14 +172,6 @@ class AIChatConfigAdmin(admin.ModelAdmin):
         ensure_ai_chat_config_record()
         return super().get_queryset(request)
 
-    def has_add_permission(self, request):
-        return True
-
-    def get_form(self, request, obj=None, **kwargs):
-        form = super().get_form(request, obj, **kwargs)
-        # 当 auto_detect_model 启用时，模型选择字段变灰提示
-        return form
-
     @admin.display(description='配置状态')
     def configured_status(self, obj):
         if not obj:

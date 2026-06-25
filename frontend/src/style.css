@@ -1352,12 +1352,6 @@ main,
   white-space: nowrap;
 }
 
-.support-grid {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 16px;
-}
-
 .compact-list {
   display: grid;
   gap: 10px;
@@ -3597,21 +3591,6 @@ main,
   gap: 12px;
 }
 
-.alert-card {
-  border-color: rgba(185, 67, 85, 0.28) !important;
-  background: #fff4f4 !important;
-  color: #b4233a;
-}
-
-.alert-card strong,
-.alert-card p {
-  color: #b4233a;
-}
-
-.alerts-panel > h3 {
-  color: #b4233a;
-}
-
 .alert-detail-panel {
   display: grid;
   gap: 18px;
@@ -4484,14 +4463,141 @@ a:focus-visible {
   }
 }
 
+/* ===== 移动端汉堡菜单按钮 ===== */
+.mobile-menu-btn {
+  display: none;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  gap: 5px;
+  width: 40px;
+  height: 40px;
+  padding: 8px;
+  border: 1px solid rgba(216, 93, 115, 0.18);
+  border-radius: var(--radius);
+  background: var(--soft);
+  cursor: pointer;
+  transition: background 0.18s ease, border-color 0.18s ease;
+}
+
+.mobile-menu-btn span {
+  display: block;
+  width: 20px;
+  height: 2px;
+  border-radius: 2px;
+  background: var(--rose-dark);
+  transition: transform 0.22s ease, opacity 0.18s ease;
+}
+
+.mobile-menu-btn:hover {
+  background: rgba(216, 93, 115, 0.12);
+}
+
+/* 汉堡菜单激活 → X 动画 */
+.nav-open .mobile-menu-btn span:nth-child(1) {
+  transform: translateY(7px) rotate(45deg);
+}
+
+.nav-open .mobile-menu-btn span:nth-child(2) {
+  opacity: 0;
+  transform: scaleX(0);
+}
+
+.nav-open .mobile-menu-btn span:nth-child(3) {
+  transform: translateY(-7px) rotate(-45deg);
+}
+
+/* 移动端导航遮罩 */
+.mobile-nav-overlay {
+  display: none;
+  position: fixed;
+  inset: 0;
+  z-index: 18;
+  background: rgba(58, 31, 36, 0.32);
+  backdrop-filter: blur(4px);
+  animation: fadeIn 0.2s ease;
+}
+
 @media (max-width: 1120px) {
+  .mobile-menu-btn {
+    display: flex;
+  }
+
   .site-header {
-    grid-template-columns: 1fr auto;
+    grid-template-columns: auto 1fr auto;
+  }
+
+  .brand {
+    grid-column: 1;
+  }
+
+  .mobile-menu-btn {
+    grid-column: 3;
+    justify-self: end;
   }
 
   .site-nav {
+    position: fixed;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 19;
+    display: grid;
+    grid-template-columns: 1fr;
+    grid-auto-rows: max-content;
+    justify-items: start;
+    align-content: start;
+    gap: 0;
+    width: min(280px, 82vw);
+    padding: 80px 24px 28px;
+    background:
+      radial-gradient(circle at 92% 6%, rgba(240, 173, 99, 0.12), transparent 30%),
+      rgba(255, 255, 255, 0.97);
+    box-shadow: -12px 0 50px rgba(126, 54, 68, 0.14);
+    backdrop-filter: blur(22px);
+    overflow-y: auto;
+    transform: translateX(105%);
+    transition: transform 0.3s cubic-bezier(0.22, 0.61, 0.36, 1);
+    pointer-events: none;
+  }
+
+  .site-nav.visible {
+    transform: translateX(0);
+    pointer-events: auto;
+  }
+
+  .site-nav a {
+    display: block;
+    width: 100%;
+    padding: 14px 4px;
+    border-bottom: 1px solid rgba(216, 93, 115, 0.08);
+    font-size: 16px;
+    color: var(--ink);
+    white-space: normal;
+  }
+
+  .site-nav a::after {
     display: none;
   }
+
+  .site-nav a:hover,
+  .site-nav a:active {
+    color: var(--rose-dark);
+    background: rgba(255, 240, 239, 0.5);
+  }
+
+  /* 移动端遮罩出现 */
+  .nav-open::before {
+    position: fixed;
+    inset: 0;
+    z-index: 18;
+    background: rgba(58, 31, 36, 0.32);
+    backdrop-filter: blur(4px);
+    content: "";
+    animation: fadeIn 0.2s ease;
+  }
+
+  .site-header {
 
   .hero-section,
   .split-section {
@@ -4511,7 +4617,6 @@ a:focus-visible {
   .data-metrics,
   .chart-grid,
   .insight-table-grid,
-  .support-grid,
   .resource-grid,
   .module-intro-grid,
   .alert-summary-strip,
@@ -4588,28 +4693,59 @@ a:focus-visible {
 
 @media (max-width: 680px) {
   .site-header {
-    width: calc(100% - 24px);
+    width: calc(100% - 16px);
     min-height: auto;
-    padding: 12px;
+    padding: 10px 12px;
+    margin-top: 8px;
+    gap: 12px;
   }
 
   .brand strong {
     display: none;
   }
 
+  .brand-mark {
+    width: 36px;
+    height: 36px;
+  }
+
+  .brand-mark img {
+    width: 26px;
+    height: 26px;
+  }
+
   .auth-actions {
     gap: 6px;
   }
 
-  .text-button,
-  .solid-button {
-    padding: 0 12px;
+  .text-button {
+    padding: 0 8px;
+    font-size: 13px;
+    min-height: 36px;
   }
 
+  .solid-button {
+    padding: 0 10px;
+    font-size: 13px;
+    min-height: 36px;
+  }
+
+  .user-chip {
+    min-height: 32px;
+    padding: 0 8px;
+    font-size: 12px;
+  }
+
+  /* ===== 全页面容器宽度 ===== */
   .hero-section,
   .section,
   .cta-section {
     width: calc(100% - 28px);
+  }
+
+  .standalone-page {
+    width: calc(100% - 28px);
+    padding: 28px 0 52px;
   }
 
   .site-footer {
@@ -4620,46 +4756,353 @@ a:focus-visible {
     width: calc(100% - 28px);
   }
 
+  /* ===== 首页 Hero ===== */
   .hero-section {
-    padding-top: 44px;
+    padding-top: 36px;
+    min-height: auto;
   }
 
   .hero-copy h1 {
-    font-size: 40px;
+    font-size: 34px;
   }
 
   .hero-copy p {
+    font-size: 15px;
+  }
+
+  .hero-actions {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+  }
+
+  .hero-actions .solid-button.large,
+  .hero-actions .outline-button.large {
+    width: 100%;
+    justify-content: center;
+    min-height: 46px;
+  }
+
+  .hero-metrics {
+    gap: 8px;
+  }
+
+  .hero-metrics div {
+    padding: 12px;
+  }
+
+  .hero-metrics strong {
+    font-size: 20px;
+  }
+
+  .hero-metrics span {
+    font-size: 11px;
+  }
+
+  .hero-visual {
+    min-height: auto !important;
+  }
+
+  .hero-visual img {
+    height: 240px;
+  }
+
+  .floating-card {
+    position: static;
+    margin-top: 10px;
+    min-width: auto;
+  }
+
+  /* ===== 功能卡片 ===== */
+  .feature-card {
+    min-height: auto;
+    padding: 18px;
+  }
+
+  .feature-card h3 {
+    margin-top: 28px;
+    font-size: 20px;
+  }
+
+  /* ===== 场景区块 ===== */
+  .scene-item {
+    grid-template-columns: 1fr;
+    gap: 12px;
+    padding: 16px;
+  }
+
+  .scene-item span {
+    width: 48px;
+    height: 48px;
+  }
+
+  .scene-item h3 {
+    font-size: 18px;
+  }
+
+  /* ===== 流程步骤 ===== */
+  .process-step {
+    padding: 16px;
+  }
+
+  .process-step span {
+    width: 38px;
+    height: 38px;
+  }
+
+  /* ===== AI 展示 ===== */
+  .ai-showcase-panel {
+    grid-template-columns: 1fr;
+    min-height: auto;
+  }
+
+  .ai-showcase-bg {
+    order: 2;
+    padding-top: 14px;
+    padding-left: 0;
+    border-top: 1px solid rgba(216, 93, 115, 0.16);
+    border-left: 0;
+  }
+
+  .ai-showcase-chat-preview {
+    order: 1;
+    min-height: 280px;
+  }
+
+  .ai-showcase-chat-head {
     font-size: 16px;
   }
 
-  .hero-actions,
-  .cta-actions,
-  .site-footer {
+  .ai-showcase-textarea {
+    min-height: 60px;
+  }
+
+  /* ===== 数据指标 ===== */
+  .data-metrics article {
+    padding: 16px;
+  }
+
+  .data-metrics strong {
+    font-size: 26px;
+  }
+
+  .chart-box {
+    height: 240px;
+  }
+
+  /* ===== 咨询师卡片 ===== */
+  .counselor-card {
+    grid-template-columns: 48px minmax(0, 1fr);
+  }
+
+  .counselor-card strong {
+    grid-column: 2;
+  }
+
+  .counselor-avatar {
+    width: 44px;
+    height: 44px;
+    font-size: 18px;
+  }
+
+  .counselor-row {
+    grid-template-columns: 32px minmax(0, 1fr) 48px;
+    gap: 8px;
+    padding: 6px;
+  }
+
+  .counselor-row p {
+    white-space: normal;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+
+  .counselor-avatar.small {
+    width: 32px;
+    height: 32px;
+    font-size: 14px;
+  }
+
+  .counselor-row h3,
+  .resource-row h3 {
+    font-size: 15px;
+  }
+
+  .counselor-row strong {
+    font-size: 14px;
+  }
+
+  /* ===== 资源行 ===== */
+  .resource-row {
+    grid-template-columns: 1fr;
+    gap: 4px;
+    padding: 6px;
+  }
+
+  .resource-row span {
+    font-size: 11px;
+  }
+
+  .resource-row p {
+    display: -webkit-box;
+    overflow: hidden;
+    white-space: normal;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+  }
+
+  /* ===== 咨询师推荐列表 ===== */
+  .counselor-recommend-list article {
+    gap: 8px;
+    padding: 6px 2px;
+  }
+
+  .board-heading-row {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .board-heading-row input {
+    width: 100%;
+  }
+
+  /* ===== 预约条 ===== */
+  .appointment-strip article {
+    grid-template-columns: minmax(0, 1fr) 92px;
+    gap: 6px;
+    font-size: 12px;
+    padding: 6px;
+  }
+
+  .appointment-strip article > span,
+  .appointment-tags {
+    display: none;
+  }
+
+  .status-select {
+    grid-template-columns: 1fr;
+    gap: 4px;
+  }
+
+  .status-select select {
+    min-height: 28px;
+    font-size: 12px;
+  }
+
+  /* ===== 分页 ===== */
+  .pagination-bar {
+    justify-content: center;
+  }
+
+  /* ===== CTA 区块 ===== */
+  .cta-section {
+    padding: 24px;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 20px;
+  }
+
+  .cta-section h2 {
+    font-size: 26px;
+  }
+
+  .cta-actions {
+    flex-direction: column;
     align-items: stretch;
   }
 
-  .footer-brand,
-  .footer-links {
-    align-items: stretch;
-    flex-direction: column;
+  .cta-actions .solid-button.large,
+  .cta-actions .outline-button.large {
+    width: 100%;
+    justify-content: center;
+  }
+
+  /* ===== 页脚 ===== */
+  .footer-inner {
+    grid-template-columns: 1fr;
+    gap: 22px;
+    padding: 36px 0 34px;
   }
 
   .footer-brand {
     align-items: flex-start;
-  }
-
-  .footer-links {
+    flex-direction: column;
     gap: 10px;
   }
 
+  .footer-brand strong {
+    font-size: 26px;
+  }
+
+  .footer-brand img {
+    width: 60px;
+    height: 60px;
+    padding: 8px;
+  }
+
+  .footer-links {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+  }
+
   .footer-links a {
-    padding: 0;
+    padding: 4px 0;
+    font-size: 14px;
   }
 
   .footer-links a + a::before {
     display: none;
   }
 
+  .footer-content p {
+    font-size: 13px;
+  }
+
+  .footer-badges span {
+    min-height: 32px;
+    padding: 0 12px;
+    font-size: 12px;
+  }
+
+  /* ===== 模块选项卡 ===== */
+  .module-tabs {
+    gap: 4px;
+    padding: 4px;
+  }
+
+  .module-tabs button {
+    min-height: 34px;
+    padding: 0 10px;
+    font-size: 13px;
+  }
+
+  /* ===== 模块简介卡片 ===== */
+  .module-intro-card {
+    min-height: auto;
+    padding: 18px;
+  }
+
+  .module-intro-card h3 {
+    margin-top: 18px;
+    font-size: 20px;
+  }
+
+  .module-intro-card p {
+    font-size: 14px;
+  }
+
+  .module-intro-card.alert-priority {
+    min-height: auto;
+  }
+
+  .module-intro-card.alert-priority h3 {
+    font-size: 24px;
+  }
+
+  /* ===== 各种网格 ===== */
   .hero-metrics,
   .feature-grid,
   .process-line,
@@ -4680,28 +5123,32 @@ a:focus-visible {
     grid-template-columns: 1fr;
   }
 
-  .ai-showcase-panel {
+  .insight-table-grid {
     grid-template-columns: 1fr;
-    min-height: auto;
   }
 
-  .ai-showcase-bg {
-    order: 2;
-    padding-top: 14px;
-    padding-left: 0;
-    border-top: 1px solid rgba(216, 93, 115, 0.16);
-    border-left: 0;
+  .insight-table-grid section {
+    overflow-x: auto;
   }
 
-  .ai-showcase-chat-preview {
-    order: 1;
-    min-height: 300px;
+  .insight-table-grid table {
+    font-size: 12px;
   }
 
+  .insight-table-grid th,
+  .insight-table-grid td {
+    padding: 8px 6px;
+  }
+
+  /* ===== AI 对话页 ===== */
   .ai-chat-page,
   .ai-chat-layout,
   .ai-chat-box {
     min-height: auto;
+  }
+
+  .ai-chat-layout {
+    gap: 12px;
   }
 
   .ai-chat-side {
@@ -4711,12 +5158,55 @@ a:focus-visible {
   .ai-companion-card {
     order: -2;
     min-height: auto;
+    padding: 16px 14px;
     border: 0;
     border-radius: 0;
   }
 
+  .ai-companion-card h2 {
+    font-size: 24px;
+  }
+
   .ai-chat-box {
     order: -1;
+  }
+
+  .ai-chat-dialog-shell {
+    border-radius: 8px;
+  }
+
+  .ai-chat-messages {
+    max-height: 52vh;
+    min-height: 160px;
+    padding: 10px;
+    gap: 6px;
+  }
+
+  .ai-chat-bubble {
+    max-width: 92%;
+    padding: 8px 10px;
+  }
+
+  .ai-chat-composer {
+    grid-template-columns: minmax(0, 1fr) 52px;
+    padding: 6px 8px 8px;
+  }
+
+  .ai-chat-composer textarea {
+    min-height: 100px;
+    max-height: 100px;
+    font-size: 14px;
+  }
+
+  .ai-chat-composer .solid-button.large {
+    min-width: 48px;
+    min-height: 30px;
+    padding: 0 10px;
+    font-size: 12px;
+  }
+
+  .ai-chat-toolbar span {
+    font-size: 16px;
   }
 
   .ai-config-panel {
@@ -4724,109 +5214,301 @@ a:focus-visible {
     border-radius: var(--radius);
   }
 
+  .ai-config-panel label {
+    font-size: 12px;
+  }
+
+  .ai-config-panel input {
+    min-height: 34px;
+    font-size: 13px;
+  }
+
   .ai-chat-support strong {
     font-size: 11px;
   }
 
-  .ai-chat-messages {
-    max-height: 58vh;
-    padding: 12px;
+  /* ===== 树洞 ===== */
+  .treehole-detail-page {
+    max-width: 100%;
   }
 
-  .ai-chat-composer {
-    grid-template-columns: minmax(0, 1fr) 52px;
+  .treehole-detail-card {
+    padding: 16px;
   }
 
-  .ai-chat-bubble {
-    max-width: 92%;
+  .treehole-detail-author strong {
+    font-size: 15px;
   }
 
+  .treehole-detail-body p {
+    font-size: 15px;
+  }
+
+  .treehole-detail-stats {
+    gap: 16px;
+  }
+
+  .treehole-reply-bubble {
+    padding: 12px 14px;
+  }
+
+  .reply-bubble-head {
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+
+  .reply-bubble-head strong {
+    font-size: 13px;
+  }
+
+  .treehole-reply-bubble p {
+    font-size: 13px;
+  }
+
+  .treehole-reply-form .solid-button {
+    justify-self: stretch;
+  }
+
+  /* ===== 情绪打卡 ===== */
+  .mood-list article {
+    padding: 8px 10px;
+  }
+
+  .mood-row-main {
+    gap: 6px;
+  }
+
+  .mood-row-main strong {
+    font-size: 13px;
+  }
+
+  .mood-tag {
+    font-size: 11px;
+    padding: 0 5px;
+  }
+
+  .mood-list p {
+    font-size: 12px;
+  }
+
+  /* ===== 测评记录 ===== */
+  .record-row {
+    padding: 8px 10px;
+  }
+
+  .record-main {
+    gap: 6px;
+  }
+
+  .record-main strong {
+    font-size: 13px;
+  }
+
+  .record-score {
+    font-size: 14px;
+  }
+
+  .record-row p {
+    font-size: 12px;
+  }
+
+  /* ===== 预警 ===== */
+  .alert-card.compact {
+    padding: 10px 12px;
+  }
+
+  .alert-card-info {
+    gap: 4px 8px;
+  }
+
+  .alert-card-info strong {
+    font-size: 13px;
+  }
+
+  .alert-card-actions button {
+    min-height: 24px;
+    padding: 0 8px;
+    font-size: 11px;
+  }
+
+  /* ===== 预警详情 ===== */
   .alert-detail-header {
     flex-direction: column;
+  }
+
+  .alert-detail-header h3,
+  .alert-detail-header h4 {
+    font-size: 22px;
+  }
+
+  .alert-summary-strip article {
+    padding: 10px;
   }
 
   .detail-card-head {
     flex-direction: column;
   }
 
-  .counselor-card {
-    grid-template-columns: 48px minmax(0, 1fr);
+  .detail-card-head h3 {
+    font-size: 18px;
   }
 
-  .counselor-card strong {
-    grid-column: 2;
+  .detail-card {
+    padding: 16px;
   }
 
-  .counselor-row {
-    grid-template-columns: 32px minmax(0, 1fr) 48px;
-    gap: 8px;
-    padding: 4px;
+  /* ===== 详情页 ===== */
+  .detail-overview h2 {
+    font-size: 26px;
   }
 
-  .counselor-avatar.small {
-    width: 32px;
-    height: 32px;
-    font-size: 14px;
-  }
-
-  .counselor-row h3,
-  .resource-row h3 {
+  .detail-overview p {
     font-size: 15px;
   }
 
-  .resource-row {
-    grid-template-columns: 1fr;
-    gap: 4px;
-    padding: 4px;
+  .article-detail h2 {
+    font-size: 24px;
   }
 
-  .resource-row p {
-    display: -webkit-box;
-    overflow: hidden;
-    white-space: normal;
-    -webkit-box-orient: vertical;
-    -webkit-line-clamp: 2;
+  .article-summary {
+    font-size: 15px;
   }
 
-  .appointment-strip article {
-    grid-template-columns: minmax(0, 1fr) 92px;
+  .article-content p {
+    font-size: 14px;
+  }
+
+  /* ===== 页面 Hero ===== */
+  .page-hero h1 {
+    font-size: 32px;
+  }
+
+  /* ===== 模块页面标题 ===== */
+  .mood-page > h3,
+  .treehole-page > h3,
+  .assessment-page > h3,
+  .alerts-page > h3,
+  .appointment-page > h3 {
+    font-size: 22px;
+  }
+
+  .module-panel h3 {
+    font-size: 20px;
+  }
+
+  /* ===== 表单区域 ===== */
+  .mood-page .mood-form,
+  .treehole-page .treehole-form,
+  .assessment-page .assessment-form,
+  .appointment-form-board,
+  .teacher-profile-board {
+    padding: 14px 16px;
+  }
+
+  .module-form label {
+    font-size: 13px;
     gap: 6px;
   }
 
-  .appointment-strip article > span,
-  .appointment-tags {
-    display: none;
+  .module-form input,
+  .module-form select,
+  .module-form textarea {
+    min-height: 40px;
+    font-size: 14px;
   }
 
-  .status-select {
+  .module-form textarea {
+    min-height: 80px;
+  }
+
+  /* ===== 注册表单 ===== */
+  .registration-grid {
+    gap: 10px;
+  }
+
+  .registration-grid label {
+    font-size: 13px;
+    gap: 6px;
+  }
+
+  .registration-grid input,
+  .registration-grid select,
+  .registration-grid textarea {
+    min-height: 42px;
+    font-size: 14px;
+  }
+
+  .registration-grid textarea {
+    min-height: 80px;
+  }
+
+  /* ===== 文章详情 ===== */
+  .article-detail h2 {
+    font-size: 26px;
+  }
+
+  /* ===== 资源搜索栏 ===== */
+  .resource-search-bar {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .resource-search-bar input {
+    width: 100%;
+  }
+
+  /* ===== 话题资源项 ===== */
+  .topic-resource-item {
     grid-template-columns: 1fr;
+    align-items: stretch;
     gap: 4px;
+    padding: 6px 4px;
   }
 
-  .pagination-bar {
-    justify-content: center;
+  .topic-resource-item h3,
+  .topic-resource-item p,
+  .topic-resource-item span {
+    white-space: normal;
   }
 
-  .hero-visual img {
-    height: 360px;
-  }
-
-  .floating-card {
-    position: static;
-    margin-top: 12px;
-  }
-
-  .scene-item {
+  /* ===== 邀请面板 ===== */
+  .invitation-grid {
     grid-template-columns: 1fr;
   }
 
-  .cta-section {
-    padding: 26px;
+  .invitation-control {
+    grid-template-columns: minmax(0, 1fr) 28px;
   }
 
+  /* ===== 树洞列表 ===== */
+  .treehole-post {
+    padding: 8px 12px;
+  }
+
+  .treehole-post-head {
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+
+  .treehole-post-foot {
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+
+  /* ===== 管理员添加咨询师表单 ===== */
+  .counselor-create-board {
+    padding: 14px 16px;
+  }
+
+  /* ===== 洞察页面 ===== */
   .insights-toolbar,
   .panel-head {
     flex-direction: column;
+    gap: 12px;
+  }
+
+  .insights-toolbar h2 {
+    font-size: 24px;
   }
 
   .insight-actions {
@@ -4834,7 +5516,273 @@ a:focus-visible {
     width: 100%;
   }
 
-  .insight-table-grid section {
-    overflow-x: auto;
+  /* ===== 模态框 ===== */
+  .auth-modal {
+    padding: 22px 18px;
+    width: calc(100% - 32px);
+  }
+
+  .auth-modal h2 {
+    font-size: 24px;
+  }
+
+  .auth-tabs {
+    width: 160px;
+  }
+
+  .auth-role-switch {
+    width: 100%;
+  }
+
+  .auth-form input,
+  .auth-form select {
+    min-height: 42px;
+    font-size: 14px;
+  }
+
+  /* ===== 用户下拉菜单 ===== */
+  .user-dropdown {
+    right: -8px;
+    min-width: 120px;
+  }
+
+  /* ===== Tag popup ===== */
+  .tag-popup-panel {
+    width: min(240px, calc(100vw - 20px));
+  }
+
+  .section-heading h2 {
+    font-size: 28px;
+  }
+
+  .chart-box {
+    height: 220px;
+  }
+}
+
+/* ===== 极小屏 (≤480px) ===== */
+@media (max-width: 480px) {
+  .site-header {
+    width: calc(100% - 12px);
+    padding: 8px 10px;
+    gap: 8px;
+    margin-top: 6px;
+    border-radius: 6px;
+  }
+
+  .brand-mark {
+    width: 32px;
+    height: 32px;
+  }
+
+  .brand-mark img {
+    width: 22px;
+    height: 22px;
+  }
+
+  .mobile-menu-btn {
+    width: 34px;
+    height: 34px;
+    padding: 6px;
+    gap: 4px;
+  }
+
+  .mobile-menu-btn span {
+    width: 17px;
+  }
+
+  .nav-open .mobile-menu-btn span:nth-child(1) {
+    transform: translateY(6px) rotate(45deg);
+  }
+
+  .nav-open .mobile-menu-btn span:nth-child(3) {
+    transform: translateY(-6px) rotate(-45deg);
+  }
+
+  .site-nav {
+    width: min(260px, 88vw);
+    padding: 70px 18px 22px;
+  }
+
+  .site-nav a {
+    padding: 12px 4px;
+    font-size: 15px;
+  }
+
+  .hero-section {
+    padding-top: 28px;
+  }
+
+  .hero-copy h1 {
+    font-size: 28px;
+  }
+
+  .hero-copy p {
+    font-size: 14px;
+  }
+
+  .hero-visual img {
+    height: 200px;
+  }
+
+  .hero-actions .solid-button.large,
+  .hero-actions .outline-button.large {
+    min-height: 42px;
+    font-size: 14px;
+  }
+
+  .section {
+    padding: 52px 0;
+  }
+
+  .section-heading h2 {
+    font-size: 24px;
+  }
+
+  .section-heading p {
+    font-size: 14px;
+  }
+
+  .feature-card {
+    padding: 14px;
+  }
+
+  .feature-card h3 {
+    font-size: 18px;
+  }
+
+  .module-intro-card {
+    padding: 14px;
+  }
+
+  .module-intro-card h3 {
+    font-size: 18px;
+  }
+
+  .auth-modal {
+    padding: 18px 14px;
+  }
+
+  .auth-modal h2 {
+    font-size: 22px;
+    margin-top: 18px;
+  }
+
+  .auth-form {
+    gap: 10px;
+    margin-top: 16px;
+  }
+
+  .auth-tabs {
+    width: 140px;
+  }
+
+  .auth-tabs button {
+    min-height: 32px;
+    font-size: 13px;
+  }
+
+  .auth-role-switch button {
+    min-height: 32px;
+    font-size: 13px;
+  }
+
+  .data-metrics article {
+    padding: 12px;
+  }
+
+  .data-metrics strong {
+    font-size: 22px;
+  }
+
+  .chart-box {
+    height: 200px;
+  }
+
+  .counselor-row {
+    grid-template-columns: 28px minmax(0, 1fr) 42px;
+    gap: 6px;
+  }
+
+  .counselor-avatar.small {
+    width: 28px;
+    height: 28px;
+    font-size: 12px;
+  }
+
+  .cta-section {
+    padding: 18px;
+  }
+
+  .cta-section h2 {
+    font-size: 22px;
+  }
+
+  .standalone-page {
+    width: calc(100% - 20px);
+    padding: 20px 0 40px;
+  }
+
+  .page-hero h1 {
+    font-size: 28px;
+  }
+
+  .detail-overview h2 {
+    font-size: 22px;
+  }
+
+  .module-tabs button {
+    min-height: 30px;
+    padding: 0 8px;
+    font-size: 12px;
+    flex: 1 0 auto;
+  }
+
+  .ai-chat-composer textarea {
+    min-height: 80px;
+    max-height: 80px;
+    font-size: 13px;
+  }
+
+  .ai-chat-messages {
+    max-height: 46vh;
+    padding: 8px;
+  }
+
+  .ai-chat-bubble {
+    max-width: 94%;
+    font-size: 13px;
+  }
+
+  .treehole-detail-card {
+    padding: 12px;
+  }
+
+  .treehole-detail-body p {
+    font-size: 14px;
+  }
+
+  .treehole-detail-stats {
+    flex-wrap: wrap;
+    gap: 12px;
+  }
+
+  .mood-page .mood-form,
+  .treehole-page .treehole-form,
+  .appointment-form-board {
+    padding: 12px 14px;
+  }
+
+  .footer-brand strong {
+    font-size: 22px;
+  }
+
+  .footer-brand img {
+    width: 48px;
+    height: 48px;
+  }
+
+  .footer-content p {
+    font-size: 12px;
   }
 }

@@ -74,7 +74,6 @@ INVITATION_RANDOM_CHARS = string.ascii_letters + string.digits + string.punctuat
 MAX_AI_CHAT_MESSAGES = 12
 MAX_AI_CHAT_CONTENT_LENGTH = 1200
 AI_CHAT_CONFIG_PATH = settings.BASE_DIR / 'ai_chat_config.json'
-AI_CHAT_COMPLETION_PATH = '/chat/completions'
 AI_CHAT_SYSTEM_PROMPT = """
 你是大学生心理支持与情绪表达平台中的 AI 倾听助手。请用温和、尊重、简洁的中文回应学生。
 你的目标是陪伴、澄清感受、帮助学生做短时情绪调节，并在合适时鼓励寻求学校心理中心、辅导员或专业咨询师帮助。
@@ -1456,7 +1455,7 @@ def reply_treehole(request, post_id):
 
     reply = TreeHoleReply.objects.create(
         post=post,
-        responder_name=request.data.get('responder_name') or ('心理教师' if role == AccountProfile.ROLE_TEACHER else '同伴支持者'),
+        responder_name=request.user.get_full_name() or request.user.username if role == AccountProfile.ROLE_TEACHER else '同伴支持者',
         content=content,
         is_counselor_reply=role == AccountProfile.ROLE_TEACHER,
     )
