@@ -1,15 +1,33 @@
-# Backend runtime dependencies for the Django service.
-# Python 3.11+ is recommended.
-# Frontend dependencies are managed separately in frontend/package.json.
+# ============================================================
+# 心晴校园 — 大学生心理支持与情绪表达平台
+# Python 后端依赖
+# Python 3.11+ recommended
+# ============================================================
 #
-# Management commands:
-#   seed_demo                      - seed demo data with tags auto-synced
-#   sync_tags                      - sync JSON tag fields into Tag model
-#   sync_authoritative_resources   - fetch external psychological resources
-#   sync_authoritative_counselors  - fetch external counselor profiles
+# 安装方式:
+#   pip install -r requirements.txt
+#   国内加速:
+#   pip install -r requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple
+# ============================================================
 
+# Web 框架
 Django==5.2.15
-django-cors-headers==4.9.0
-django-simpleui==2026.1.13
 djangorestframework==3.17.1
+
+# 跨域支持
+django-cors-headers==4.9.0
+
+# 后台管理主题
+django-simpleui==2026.1.13
+
+# 时区数据（Windows 平台 Django 自动依赖）
 tzdata==2026.2
+
+# ============================================================
+# 可选：生产环境部署
+# ============================================================
+# gunicorn==23.0.0        # Linux 生产服务器
+# waitress==3.0.2          # Windows 生产服务器
+# whitenoise==6.11.0       # 静态文件服务（配合前端 dist/）
+# mysqlclient==2.2.7       # MySQL 数据库
+# psycopg2-binary==2.9.10  # PostgreSQL 数据库
