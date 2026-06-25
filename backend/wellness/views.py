@@ -439,6 +439,7 @@ class AdminManagedModelViewSet(viewsets.ModelViewSet):
 class StudentProfileViewSet(AdminManagedModelViewSet):
     queryset = StudentProfile.objects.select_related('user').all()
     serializer_class = StudentProfileSerializer
+    pagination_class = None
 
     def get_permissions(self):
         if is_read_request(self.request):

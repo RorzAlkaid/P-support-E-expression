@@ -23,11 +23,13 @@ from .models import (
 class StudentProfileSerializer(serializers.ModelSerializer):
     name = serializers.CharField(source='user.get_full_name', read_only=True)
     username = serializers.CharField(source='user.username', read_only=True)
+    user_id = serializers.IntegerField(source='user.id', read_only=True)
 
     class Meta:
         model = StudentProfile
         fields = [
             'id',
+            'user_id',
             'name',
             'username',
             'student_no',
@@ -45,12 +47,15 @@ class CounselorSerializer(serializers.ModelSerializer):
     related_score = serializers.IntegerField(read_only=True)
     related_tags = serializers.ListField(child=serializers.CharField(), read_only=True)
     username = serializers.CharField(source='user.username', read_only=True)
+    user_display = serializers.CharField(source='user.get_full_name', read_only=True)
 
     class Meta:
         model = Counselor
         fields = [
             'id',
+            'user',
             'username',
+            'user_display',
             'name',
             'title',
             'specialties',
@@ -65,6 +70,7 @@ class CounselorSerializer(serializers.ModelSerializer):
             'related_score',
             'related_tags',
         ]
+        read_only_fields = ['fetched_at', 'match_score', 'related_score', 'related_tags']
 
 
 class ArticleSerializer(serializers.ModelSerializer):

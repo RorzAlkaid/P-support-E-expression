@@ -16,6 +16,7 @@ from wellness.models import (
     ExternalResourceSource,
     MoodEntry,
     StudentProfile,
+    Tag,
     TreeHolePost,
     TreeHoleReply,
 )
@@ -310,5 +311,15 @@ class Command(BaseCommand):
             admin.set_password('admin123456')
             admin.save()
         AccountProfile.objects.update_or_create(user=admin, defaults={'role': 'admin'})
+
+        all_tag_names = set()
+        for article in Article.objects.all():
+            for tag in (article.tags or []):
+                all_tag_names.add(str(tag).strip())
+        for counselor in Counselor.objects.all():
+            for tag in (counselor.specialties or []):
+                all_tag_names.add(str(tag).strip())
+        for name in all_tag_names:
+            Tag.objects.get_or_create(name=name, defaults={'description': '', 'is_active': True})
 
         self.stdout.write(self.style.SUCCESS('演示数据已创建：admin/admin123456，student001/student001，teacher001/teacher001'))
