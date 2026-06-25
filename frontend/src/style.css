@@ -1789,6 +1789,48 @@ main,
   font-size: 24px;
 }
 
+/* ── 去框化页面：无边框无阴影，仅靠分隔线区分区域 ── */
+.mood-page,
+.treehole-page,
+.assessment-page,
+.alerts-page {
+  min-height: 420px;
+}
+
+.mood-page > h3,
+.treehole-page > h3,
+.assessment-page > h3,
+.alerts-page > h3 {
+  margin-bottom: 20px;
+  font-size: 26px;
+}
+
+/* 情绪打卡：表单区浅色底 + 虚线分隔 */
+.mood-page .mood-form {
+  padding: 20px 22px;
+  border-radius: var(--radius);
+  background: rgba(255, 250, 249, 0.72);
+}
+
+/* 匿名树洞：表单区柔和底色 */
+.treehole-page .treehole-form {
+  padding: 20px 22px;
+  border-radius: var(--radius);
+  background: rgba(255, 248, 248, 0.65);
+}
+
+/* 心理测评：表单区留白为主 */
+.assessment-page .assessment-form {
+  padding: 20px 22px;
+  border-radius: var(--radius);
+  background: rgba(255, 252, 249, 0.6);
+}
+
+/* 预警页：列表区直接用紧凑卡片，无需额外容器 */
+.alerts-page .alert-list {
+  margin-top: 8px;
+}
+
 .module-panel .solid-button {
   justify-self: start;
 }
@@ -2336,32 +2378,629 @@ main,
   margin-top: 18px;
 }
 
-.module-list article,
-.treehole-post {
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  background: #fffaf9;
+.section-block {
+  margin-top: 24px;
+  padding-top: 16px;
+  border-top: 2px dashed rgba(216, 93, 115, 0.1);
 }
 
-.module-list article {
-  padding: 16px;
+.section-label {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.section-label span {
+  color: var(--ink);
+  font-size: 16px;
+  font-weight: 780;
+}
+
+.section-label em {
+  color: var(--muted);
+  font-size: 12px;
+  font-style: normal;
+}
+
+/* ── 情绪打卡 list ── */
+.mood-list {
+  display: grid;
+  gap: 0;
+}
+
+.mood-list article {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 6px 14px;
+  padding: 10px 12px;
+  border-bottom: 1px solid rgba(126, 54, 68, 0.07);
+  background: transparent;
+}
+
+.mood-list article.alt {
+  background: rgba(255, 247, 245, 0.48);
+}
+
+.mood-row-main {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+}
+
+.mood-row-main strong {
+  color: var(--ink);
+  font-size: 14px;
+}
+
+.mood-tag {
+  display: inline-flex;
+  align-items: center;
+  min-height: 22px;
+  padding: 0 7px;
+  border-radius: 4px;
+  color: var(--rose-dark);
+  background: rgba(216, 93, 115, 0.1);
+  font-size: 12px;
+  font-weight: 720;
+}
+
+.mood-row-main small {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.mood-list p {
+  grid-column: 1;
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+/* ── 匿名树洞 list ── */
+.treehole-list {
+  display: grid;
+  gap: 10px;
+}
+
+.treehole-post {
+  padding: 10px 14px;
+  border: 1px solid rgba(216, 93, 115, 0.08);
+  border-left: 3px solid var(--rose);
+  border-radius: 0 6px 6px 0;
+  background: rgba(255, 250, 249, 0.72);
+}
+
+.treehole-post-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 3px;
+}
+
+.treehole-post-head span {
+  color: var(--rose-dark);
+  font-size: 12px;
+  font-weight: 760;
+}
+
+.treehole-post-head small {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.treehole-post > p {
+  color: var(--ink);
+  font-size: 13px;
+  line-height: 1.45;
+  margin: 0;
+}
+
+.treehole-post-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 5px;
+  padding-top: 4px;
+  border-top: 1px solid rgba(126, 54, 68, 0.04);
+}
+
+.treehole-post-foot small {
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.treehole-meta {
+  color: var(--muted);
+  font-size: 10px;
+  margin-left: auto;
+}
+
+.treehole-enter-btn {
+  min-height: 24px;
+  padding: 0 10px;
+  border: 1px solid rgba(216, 93, 115, 0.22);
+  border-radius: 3px;
+  color: var(--rose-dark);
+  background: rgba(255, 255, 255, 0.82);
+  font-size: 11px;
+  font-weight: 760;
+  cursor: pointer;
+  transition: background 0.16s ease, transform 0.16s ease;
+}
+
+.treehole-enter-btn:hover {
+  color: #ffffff;
+  background: var(--rose);
+  border-color: var(--rose);
+  transform: translateY(-1px);
+}
+
+.treehole-list {
+  gap: 6px;
+}
+
+.treehole-post {
+  cursor: pointer;
+  transition: border-left-color 0.18s ease, background 0.18s ease, transform 0.18s ease;
+}
+
+.treehole-post:hover {
+  border-left-color: var(--rose-dark);
+  background: rgba(255, 248, 248, 0.92);
+  transform: translateX(2px);
+}
+
+/* ── 树洞详情页 ── */
+.treehole-detail-page {
+  max-width: 780px;
+}
+
+.treehole-detail-card {
+  padding: 24px 28px;
+  border-radius: var(--radius);
+  background: rgba(255, 250, 250, 0.78);
+  border: 1px solid rgba(216, 93, 115, 0.08);
+}
+
+.treehole-detail-head {
+  display: grid;
+  gap: 12px;
+}
+
+.treehole-detail-author {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.treehole-detail-avatar {
+  display: grid;
+  width: 44px;
+  height: 44px;
+  place-items: center;
+  border-radius: 50%;
+  color: #ffffff;
+  font-size: 20px;
+  font-weight: 850;
+  flex-shrink: 0;
+}
+
+.treehole-detail-author strong {
+  display: block;
+  color: var(--ink);
+  font-size: 16px;
+}
+
+.treehole-detail-author small {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.treehole-detail-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.treehole-cat-tag {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  padding: 0 8px;
+  border-radius: 4px;
+  color: var(--rose-dark);
+  background: rgba(216, 93, 115, 0.08);
+  font-size: 12px;
+  font-weight: 720;
+}
+
+.treehole-mood-tag {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  padding: 0 8px;
+  border-radius: 4px;
+  color: #8f7220;
+  background: rgba(240, 173, 99, 0.12);
+  font-size: 12px;
+  font-weight: 720;
+}
+
+.treehole-risk-tag {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  padding: 0 8px;
+  border-radius: 4px;
+  color: #b4233a;
+  background: rgba(185, 67, 85, 0.1);
+  font-size: 12px;
+  font-weight: 720;
+}
+
+.treehole-detail-body {
+  margin-top: 18px;
+  padding-top: 16px;
+  border-top: 1px solid rgba(126, 54, 68, 0.06);
+}
+
+.treehole-detail-body p {
+  color: var(--ink);
+  font-size: 16px;
+  line-height: 1.8;
+  white-space: pre-wrap;
+}
+
+.treehole-detail-stats {
+  display: flex;
+  gap: 28px;
+  margin-top: 18px;
+  padding-top: 14px;
+  border-top: 1px solid rgba(126, 54, 68, 0.06);
+}
+
+.treehole-stat {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+
+.treehole-stat strong {
+  color: var(--rose-dark);
+  font-size: 20px;
+}
+
+.treehole-stat span {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+/* ── 回复墙 ── */
+.treehole-reply-wall {
+  display: grid;
+  gap: 10px;
+}
+
+.treehole-reply-bubble {
+  padding: 14px 16px;
+  border-radius: var(--radius);
+  background: rgba(255, 247, 245, 0.6);
+  border: 1px solid rgba(216, 93, 115, 0.06);
+}
+
+.treehole-reply-bubble.counselor {
+  background: rgba(255, 250, 244, 0.7);
+  border-color: rgba(240, 173, 99, 0.14);
+  border-left: 3px solid #f0ad63;
+}
+
+.reply-bubble-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin-bottom: 6px;
+}
+
+.reply-bubble-head strong {
+  color: var(--ink);
+  font-size: 14px;
+}
+
+.reply-bubble-head small {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.counselor-badge {
+  display: inline-flex;
+  align-items: center;
+  min-height: 18px;
+  padding: 0 6px;
+  border-radius: 3px;
+  color: #b5842a;
+  background: rgba(240, 173, 99, 0.2);
+  font-size: 10px;
+  font-weight: 760;
+}
+
+.treehole-reply-bubble p {
+  color: var(--ink);
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+/* ── 回复表单 ── */
+.treehole-reply-form {
+  display: grid;
+  gap: 10px;
+  margin-top: 16px;
+}
+
+.treehole-reply-form textarea {
+  width: 100%;
+  min-height: 80px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  color: var(--ink);
+  background: #fffaf9;
+  font-size: 14px;
+  resize: vertical;
+  font-family: inherit;
+}
+
+.treehole-reply-form .solid-button {
+  justify-self: end;
+  min-height: 38px;
+  padding: 0 20px;
+}
+
+/* ── 心理测评 list ── */
+.record-list {
+  display: grid;
+  gap: 0;
+}
+
+.record-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 4px 12px;
+  padding: 10px 12px;
+  border-bottom: 1px solid rgba(126, 54, 68, 0.07);
+  background: transparent;
+}
+
+.record-row.alt {
+  background: rgba(255, 250, 246, 0.48);
+}
+
+.record-main {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 10px;
+  min-width: 0;
+}
+
+.record-main strong {
+  color: var(--ink);
+  font-size: 14px;
+}
+
+.record-scale {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.record-score {
+  color: var(--rose-dark);
+  font-size: 15px;
+  font-weight: 780;
+}
+
+.record-main small {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.record-row p {
+  grid-column: 1;
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+/* ── 预警 list ── */
+.alert-list {
+  display: grid;
+  gap: 8px;
+}
+
+.alert-card.compact {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: flex-start;
+  gap: 10px 16px;
+  padding: 12px 16px;
+  border: 1px solid rgba(185, 67, 85, 0.14);
+  border-left: 3px solid rgba(185, 67, 85, 0.55);
+  border-radius: 0 6px 6px 0;
+  background: rgba(255, 246, 246, 0.72);
+}
+
+.alert-card.compact.warning {
+  border-left-color: #f0ad63;
+  background: rgba(255, 250, 244, 0.72);
+}
+
+.alert-card.compact.critical {
+  border-left-color: #b4233a;
+  background: rgba(255, 243, 244, 0.8);
+}
+
+.alert-card-info {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px 12px;
+}
+
+.alert-card-info strong {
+  color: var(--ink);
+  font-size: 14px;
+}
+
+.alert-level-tag {
+  display: inline-flex;
+  align-items: center;
+  min-height: 20px;
+  padding: 0 6px;
+  border-radius: 3px;
+  font-size: 11px;
+  font-weight: 760;
+}
+
+.alert-card.compact.notice .alert-level-tag {
+  color: #8f7220;
+  background: rgba(240, 173, 99, 0.14);
+}
+
+.alert-card.compact.warning .alert-level-tag {
+  color: #b5842a;
+  background: rgba(240, 173, 99, 0.2);
+}
+
+.alert-card.compact.critical .alert-level-tag {
+  color: #ffffff;
+  background: #b4233a;
+}
+
+.alert-card-info small {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.alert-status {
+  color: #b4233a;
+  font-weight: 760;
+}
+
+.alert-card-main p {
+  margin: 6px 0 0;
+  color: var(--ink);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.alert-card-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.alert-card-actions button {
+  min-height: 26px;
+  padding: 0 10px;
+  border: 1px solid rgba(185, 67, 85, 0.15);
+  border-radius: 4px;
+  color: var(--rose-dark);
+  background: #ffffff;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.alert-card-actions button:hover {
+  background: var(--soft);
+}
+
+.alert-card-actions .danger-button.compact {
+  color: #ffffff;
+  background: #b94355;
+  border-color: transparent;
+}
+
+/* ── compact danger button ── */
+.danger-button.compact {
+  min-height: 26px;
+  padding: 0 10px;
+  font-size: 12px;
+  border-radius: 4px;
+}
+
+/* ── mood / treehole / assessment form visual separation ── */
+.module-form.mood-form,
+.module-form.treehole-form,
+.module-form.assessment-form {
+  padding-bottom: 18px;
+  margin-bottom: 4px;
+  border-bottom: 2px dashed rgba(216, 93, 115, 0.12);
+}
+
+/* ── 咨询预约页：去框化，分区展示 ── */
+.appointment-page > h3 {
+  margin-bottom: 22px;
+  font-size: 26px;
 }
 
 .appointment-board {
   display: grid;
-  gap: 14px;
+  gap: 12px;
 }
 
 .appointment-board + .appointment-board {
-  margin-top: 26px;
-  padding-top: 24px;
-  border-top: 1px solid var(--line);
+  margin-top: 22px;
+  padding-top: 18px;
+  border-top: 2px dashed rgba(216, 93, 115, 0.1);
 }
 
 .appointment-board h4 {
-  margin: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin: 0 0 4px;
   color: var(--ink);
-  font-size: 18px;
+  font-size: 16px;
+  font-weight: 780;
+}
+
+.appointment-board h4::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: rgba(216, 93, 115, 0.1);
+}
+
+/* 教师资料区：浅色底 */
+.teacher-profile-board {
+  padding: 18px 22px;
+  border-radius: var(--radius);
+  background: rgba(255, 249, 249, 0.65);
+}
+
+/* 咨询师推荐区：右侧卡片列表 */
+.counselor-recommend-board {
+  padding: 0;
+  background: transparent;
+}
+
+/* 预约信息区 */
+.appointment-info-board {
+  padding: 0;
+  background: transparent;
+}
+
+/* 学生预约表单区 */
+.appointment-form-board {
+  padding: 18px 22px;
+  border-radius: var(--radius);
+  background: rgba(255, 252, 249, 0.6);
 }
 
 .board-heading-row,
@@ -2741,6 +3380,15 @@ main,
   margin: 0;
   padding: 0 8px;
   font-size: 11px;
+}
+
+.appointment-more-hint {
+  margin: 4px 0 0;
+  padding: 4px 8px;
+  color: var(--muted);
+  font-size: 12px;
+  font-style: italic;
+  text-align: center;
 }
 
 .status-select select {

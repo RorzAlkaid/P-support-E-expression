@@ -52,7 +52,10 @@ let chartRenderAttempts = 0
 const maxChartRenderAttempts = 12
 const currentUser = ref(null)
 const initialHashParts = window.location.hash?.replace('#/', '').split('/') || ['home']
-const currentPage = ref(initialHashParts[0] || 'home')
+const currentPage = ref(
+  (initialHashParts[0] === 'treehole' && initialHashParts[1]) ? 'treehole-detail' :
+  (initialHashParts[0] || 'home')
+)
 const authReady = ref(false)
 const authSubmitting = ref(false)
 const authMessage = ref('')
@@ -114,9 +117,15 @@ const alertDetailLoading = ref(false)
 const alertDetailMessage = ref('')
 const currentArticleId = ref(initialHashParts[0] === 'article' ? initialHashParts[1] : null)
 const currentAlertId = ref(initialHashParts[0] === 'alert-detail' ? initialHashParts[1] : null)
+const currentTreeholeId = ref(initialHashParts[0] === 'treehole' ? initialHashParts[1] : null)
 const activeModule = ref('mood')
 const resourcePage = ref(1)
 const resourcePageSize = 24
+const moodPage = ref(1)
+const treeholePage = ref(1)
+const recordPage = ref(1)
+const alertPage = ref(1)
+const listPageSize = 8
 const counselorCreateForm = ref({
   student_id: null,
   name: '',
@@ -244,6 +253,7 @@ const pageTitles = {
   alerts: '预警管理',
   insights: '数据洞察',
   'alert-detail': '预警学生详情',
+  'treehole-detail': '树洞详情',
 }
 
 const pageAccessRules = {
@@ -258,6 +268,7 @@ const pageAccessRules = {
   insights: { roles: ['student', 'teacher', 'admin'], loginRequired: true, label: '数据洞察' },
   alerts: { roles: ['teacher', 'admin'], loginRequired: true, label: '预警管理' },
   'alert-detail': { roles: ['teacher', 'admin'], loginRequired: true, label: '预警学生详情' },
+  'treehole-detail': { roles: ['student', 'teacher', 'admin'], loginRequired: true, label: '树洞详情' },
 }
 
 const moduleIntros = [
@@ -403,6 +414,7 @@ const studentsWithoutCounselor = computed(() => {
   )
 })
 const currentArticle = computed(() => articles.value.find((item) => String(item.id) === String(currentArticleId.value)))
+const currentTreehole = computed(() => allTreeholes.value.find((item) => String(item.id) === String(currentTreeholeId.value)))
 const homeCounselors = computed(() => counselors.value.slice(0, 6))
 const homeArticles = computed(() => articles.value.slice(0, 6))
 const recommendedCounselors = computed(() => filterByKeyword(moduleData.value?.counselors || counselors.value, counselorSearch.value, ['name', 'title', 'qualifications', 'specialties', 'related_tags']))
@@ -423,6 +435,38 @@ const visibleAppointments = computed(() => {
   const appointments = moduleData.value?.appointments || []
   if (['teacher', 'admin'].includes(currentRole.value)) return appointments
   return appointments.filter((item) => !['pending', 'cancelled'].includes(item.status))
+})
+const recentAppointments = computed(() => visibleAppointments.value.slice(0, 5))
+const hasMoreAppointments = computed(() => visibleAppointments.value.length > 5)
+
+const moodItems = computed(() => moduleData.value?.moods || [])
+const moodTotalPages = computed(() => Math.max(1, Math.ceil(moodItems.value.length / listPageSize)))
+const pagedMoods = computed(() => {
+  const page = Math.min(moodPage.value, moodTotalPages.value)
+  return moodItems.value.slice((page - 1) * listPageSize, page * listPageSize)
+})
+
+const allTreeholes = ref([])
+const treeholeLoading = ref(false)
+const treeholeItems = computed(() => allTreeholes.value)
+const treeholeTotalPages = computed(() => Math.max(1, Math.ceil(treeholeItems.value.length / listPageSize)))
+const pagedTreeholes = computed(() => {
+  const page = Math.min(treeholePage.value, treeholeTotalPages.value)
+  return treeholeItems.value.slice((page - 1) * listPageSize, page * listPageSize)
+})
+
+const recordItems = computed(() => moduleData.value?.records || [])
+const recordTotalPages = computed(() => Math.max(1, Math.ceil(recordItems.value.length / listPageSize)))
+const pagedRecords = computed(() => {
+  const page = Math.min(recordPage.value, recordTotalPages.value)
+  return recordItems.value.slice((page - 1) * listPageSize, page * listPageSize)
+})
+
+const alertItems = computed(() => moduleData.value?.alerts || [])
+const alertTotalPages = computed(() => Math.max(1, Math.ceil(alertItems.value.length / listPageSize)))
+const pagedAlerts = computed(() => {
+  const page = Math.min(alertPage.value, alertTotalPages.value)
+  return alertItems.value.slice((page - 1) * listPageSize, page * listPageSize)
 })
 
 function filterByKeyword(items, keyword, fields) {
@@ -666,6 +710,9 @@ function navigate(page) {
   if (page === 'appointment' && currentRole.value === 'admin') {
     loadStudentList()
   }
+  if (page === 'treehole') {
+    loadAllTreeholes()
+  }
   if (page === 'insights') {
     loadInsights()
   }
@@ -693,6 +740,62 @@ async function openArticle(article) {
   }
   window.location.hash = articlePath
   window.scrollTo({ top: 0, behavior: 'smooth' })
+}
+
+async function openTreehole(post) {
+  if (!guardPageAccess('treehole')) {
+    return
+  }
+  const treeholePath = `/treehole/${post.id}`
+  currentTreeholeId.value = post.id
+  currentPage.value = 'treehole-detail'
+  if (reloadIntoPage(treeholePath)) {
+    return
+  }
+  window.location.hash = treeholePath
+  window.scrollTo({ top: 0, behavior: 'smooth' })
+}
+
+async function loadAllTreeholes() {
+  treeholeLoading.value = true
+  try {
+    const response = await axios.get('/api/treehole-posts/')
+    allTreeholes.value = response.data.results ?? response.data
+  } catch (error) {
+    console.error('树洞列表加载失败', error)
+    allTreeholes.value = []
+  } finally {
+    treeholeLoading.value = false
+  }
+}
+
+async function loadTreeholeDetail(treeholeOrId) {
+  const treeholeId = typeof treeholeOrId === 'object' ? treeholeOrId.id : treeholeOrId
+  if (!treeholeId) return
+  try {
+    const response = await axios.get(`/api/treehole-posts/${treeholeId}/`)
+    const idx = allTreeholes.value.findIndex((t) => String(t.id) === String(treeholeId))
+    if (idx >= 0) {
+      allTreeholes.value[idx] = response.data
+    }
+    currentTreeholeId.value = treeholeId
+  } catch (error) {
+    console.error('树洞详情加载失败', error)
+  }
+}
+
+async function submitTreeholeReplyFromDetail() {
+  if (!currentTreeholeId.value) return
+  const content = replyForms.value[`treehole-${currentTreeholeId.value}`]
+  if (!content) return
+  await axios.post(`/api/modules/treeholes/${currentTreeholeId.value}/reply/`, {
+    content,
+    responder_name: currentUser.value?.name || '同伴支持者',
+    is_counselor_reply: currentRole.value === 'teacher',
+  })
+  replyForms.value[`treehole-${currentTreeholeId.value}`] = ''
+  moduleMessage.value = '回应已发送。'
+  await loadTreeholeDetail(currentTreeholeId.value)
 }
 
 function scrollToModules() {
@@ -790,6 +893,13 @@ async function loadCurrentUser() {
     }
     if (currentPage.value === 'alert-detail' && currentAlertId.value && canViewAlerts.value) {
       await loadAlertStudentDetail(currentAlertId.value)
+    }
+    if (currentPage.value === 'treehole') {
+      await loadAllTreeholes()
+    }
+    if (currentPage.value === 'treehole-detail' && currentTreeholeId.value) {
+      await loadAllTreeholes()
+      await loadTreeholeDetail(currentTreeholeId.value)
     }
     if (currentUser.value && currentPage.value === 'profile') {
       await loadUserProfile()
@@ -1203,10 +1313,7 @@ async function submitAuth() {
     currentUser.value = response.data.user
     authMessage.value = response.data.detail || '操作成功'
     showAuth.value = false
-    await refreshModules()
-    if (currentPage.value === 'ai-chat' && currentRole.value === 'admin') {
-      await loadAiChatConfig()
-    }
+    window.location.reload()
   } catch (error) {
     authMessage.value = error.response?.data?.detail || '操作失败，请检查输入后重试。'
   } finally {
@@ -1258,8 +1365,8 @@ async function submitRegister() {
     const response = await axios.post('/api/auth/register/', payload)
     currentUser.value = response.data.user
     authMessage.value = response.data.detail || '注册成功'
-    await refreshModules()
-    navigate('details')
+    window.location.hash = '#/details'
+    window.location.reload()
   } catch (error) {
     authMessage.value = error.response?.data?.detail || '注册失败，请检查输入后重试。'
   } finally {
@@ -1908,6 +2015,22 @@ async function changeAppointmentStatus(item, event) {
 function changeResourcePage(page) {
   resourcePage.value = Math.min(Math.max(1, page), resourceTotalPages.value)
   window.scrollTo({ top: 0, behavior: 'smooth' })
+}
+
+function changeMoodPage(page) {
+  moodPage.value = Math.min(Math.max(1, page), moodTotalPages.value)
+}
+
+function changeTreeholePage(page) {
+  treeholePage.value = Math.min(Math.max(1, page), treeholeTotalPages.value)
+}
+
+function changeRecordPage(page) {
+  recordPage.value = Math.min(Math.max(1, page), recordTotalPages.value)
+}
+
+function changeAlertPage(page) {
+  alertPage.value = Math.min(Math.max(1, page), alertTotalPages.value)
 }
 
 function formatList(value) {
@@ -2826,9 +2949,9 @@ async function editAlert(alert) {
         </div>
       </section>
 
-      <section v-if="currentPage === 'mood'" class="module-panel page-panel">
+      <section v-if="currentPage === 'mood'" class="page-panel mood-page">
         <h3>情绪打卡记录</h3>
-        <form v-if="canWrite" class="module-form" @submit.prevent="submitMood">
+        <form v-if="canWrite" class="module-form mood-form" @submit.prevent="submitMood">
           <label>今日情绪<input v-model="moodForm.mood" /></label>
           <label>情绪强度<input v-model="moodForm.intensity" type="range" min="1" max="10" /></label>
           <label>睡眠质量<input v-model="moodForm.sleep_quality" type="range" min="1" max="10" /></label>
@@ -2837,18 +2960,30 @@ async function editAlert(alert) {
           <button class="solid-button large" type="submit">保存打卡</button>
         </form>
         <p v-if="moduleMessage" class="module-message">{{ moduleMessage }}</p>
-        <div class="module-list">
-          <article v-for="item in moduleData?.moods" :key="item.id">
-            <strong>{{ item.student_name }}：{{ item.mood }} {{ item.intensity }}/10</strong>
-            <p>{{ item.note || '暂无日记内容' }}</p>
-            <button v-if="canManage" class="danger-button" type="button" @click="adminDelete(`/api/mood-entries/${item.id}/`)">删除</button>
-          </article>
+        <div v-if="moodItems.length" class="section-block">
+          <div class="section-label"><span>打卡记录</span><em>{{ moodItems.length }} 条</em></div>
+          <div class="mood-list">
+            <article v-for="(item, idx) in pagedMoods" :key="item.id" :class="{ alt: idx % 2 === 1 }">
+              <div class="mood-row-main">
+                <strong>{{ item.student_name }}</strong>
+                <span class="mood-tag">{{ item.mood }}</span>
+                <small>强度 {{ item.intensity }}/10 · 睡眠 {{ item.sleep_quality }}/10</small>
+              </div>
+              <p v-if="item.note">{{ item.note }}</p>
+              <button v-if="canManage" class="danger-button compact" type="button" @click="adminDelete(`/api/mood-entries/${item.id}/`)">删除</button>
+            </article>
+          </div>
+        </div>
+        <div v-if="moodTotalPages > 1" class="pagination-bar">
+          <button type="button" :disabled="moodPage <= 1" @click="changeMoodPage(moodPage - 1)">上一页</button>
+          <span>第 {{ moodPage }} / {{ moodTotalPages }} 页 · 共 {{ moodItems.length }} 条</span>
+          <button type="button" :disabled="moodPage >= moodTotalPages" @click="changeMoodPage(moodPage + 1)">下一页</button>
         </div>
       </section>
 
-      <section v-if="currentPage === 'treehole'" class="module-panel page-panel">
+      <section v-if="currentPage === 'treehole'" class="page-panel treehole-page">
         <h3>匿名树洞</h3>
-        <form v-if="canPublishTreehole" class="module-form" @submit.prevent="submitTreehole">
+        <form v-if="canPublishTreehole" class="module-form treehole-form" @submit.prevent="submitTreehole">
           <label>分类
             <select v-model="treeholeForm.category">
               <option value="study">学业压力</option>
@@ -2863,28 +2998,35 @@ async function editAlert(alert) {
           <button class="solid-button large" type="submit">发布树洞</button>
         </form>
         <p v-if="moduleMessage" class="module-message">{{ moduleMessage }}</p>
-        <div class="treehole-list">
-          <article v-for="post in moduleData?.treeholes" :key="post.id" class="treehole-post">
-            <span>{{ post.student_name }} · {{ post.mood_tag || '未标记' }}</span>
-            <p>{{ post.content }}</p>
-            <div class="reply-list">
-              <p v-for="reply in post.replies" :key="reply.id">{{ reply.responder_name }}：{{ reply.content }}</p>
-            </div>
-            <form v-if="canReplyTreehole" class="reply-form" @submit.prevent="submitReply(post.id)">
-              <input v-model="replyForms[post.id]" placeholder="写一句温和回应" />
-              <button type="submit">回应</button>
-            </form>
-            <div v-if="canManage" class="admin-actions">
-              <button type="button" @click="editTreehole(post)">编辑</button>
-              <button class="danger-button" type="button" @click="adminDelete(`/api/treehole-posts/${post.id}/`)">删除</button>
-            </div>
-          </article>
+        <div class="section-block">
+          <div class="section-label"><span>树洞列表</span><em>{{ treeholeItems.length }} 条</em></div>
+          <p v-if="treeholeLoading" class="data-loading">正在加载树洞...</p>
+          <div v-else-if="treeholeItems.length" class="treehole-list">
+            <article v-for="post in pagedTreeholes" :key="post.id" class="treehole-post" @click="openTreehole(post)">
+              <div class="treehole-post-head">
+                <span>{{ post.student_name }}</span>
+                <small>{{ post.mood_tag || '未标记' }} · {{ treeholeCategoryLabel(post.category) }}</small>
+                <small class="treehole-meta">{{ post.support_count || 0 }} 支持 · {{ (post.replies || []).length }} 回复</small>
+              </div>
+              <p>{{ post.content.slice(0, 140) }}{{ post.content.length > 140 ? '...' : '' }}</p>
+              <div class="treehole-post-foot">
+                <small>{{ formatDateTime(post.created_at) }}</small>
+                <button class="treehole-enter-btn" type="button" @click.stop="openTreehole(post)">查看详情 →</button>
+              </div>
+            </article>
+          </div>
+          <p v-else class="empty-state">还没有人发布树洞，来做第一个倾诉的人吧。</p>
+        </div>
+        <div v-if="treeholeTotalPages > 1" class="pagination-bar">
+          <button type="button" :disabled="treeholePage <= 1" @click="changeTreeholePage(treeholePage - 1)">上一页</button>
+          <span>第 {{ treeholePage }} / {{ treeholeTotalPages }} 页 · 共 {{ treeholeItems.length }} 条</span>
+          <button type="button" :disabled="treeholePage >= treeholeTotalPages" @click="changeTreeholePage(treeholePage + 1)">下一页</button>
         </div>
       </section>
 
-      <section v-if="currentPage === 'assessment'" class="module-panel page-panel">
+      <section v-if="currentPage === 'assessment'" class="page-panel assessment-page">
         <h3>心理测评</h3>
-        <form v-if="canWrite" class="module-form" @submit.prevent="submitAssessment">
+        <form v-if="canWrite" class="module-form assessment-form" @submit.prevent="submitAssessment">
           <label class="full">选择量表
             <select v-model="assessmentForm.scale">
               <option v-for="scale in moduleData?.scales" :key="scale.id" :value="scale.id">{{ scale.name }}</option>
@@ -2899,16 +3041,29 @@ async function editAlert(alert) {
           <button class="solid-button large" type="submit">提交测评</button>
         </form>
         <p v-if="moduleMessage" class="module-message">{{ moduleMessage }}</p>
-        <div class="module-list">
-          <article v-for="record in moduleData?.records" :key="record.id">
-            <strong>{{ record.student_name }}：{{ record.scale_name }} {{ record.score }} 分</strong>
-            <p>{{ record.suggestion }}</p>
-            <button v-if="canManage" class="danger-button" type="button" @click="adminDelete(`/api/assessment-records/${record.id}/`)">删除</button>
-          </article>
+        <div v-if="recordItems.length" class="section-block">
+          <div class="section-label"><span>测评记录</span><em>{{ recordItems.length }} 条</em></div>
+          <div class="record-list">
+            <div v-for="(record, idx) in pagedRecords" :key="record.id" :class="['record-row', { alt: idx % 2 === 1 }]">
+              <div class="record-main">
+                <strong>{{ record.student_name }}</strong>
+                <span class="record-scale">{{ record.scale_name }}</span>
+                <span class="record-score">{{ record.score }} 分</span>
+                <small>{{ riskLevelLabel(record.risk_level) }}风险</small>
+              </div>
+              <p v-if="record.suggestion">{{ record.suggestion }}</p>
+              <button v-if="canManage" class="danger-button compact" type="button" @click="adminDelete(`/api/assessment-records/${record.id}/`)">删除</button>
+            </div>
+          </div>
+        </div>
+        <div v-if="recordTotalPages > 1" class="pagination-bar">
+          <button type="button" :disabled="recordPage <= 1" @click="changeRecordPage(recordPage - 1)">上一页</button>
+          <span>第 {{ recordPage }} / {{ recordTotalPages }} 页 · 共 {{ recordItems.length }} 条</span>
+          <button type="button" :disabled="recordPage >= recordTotalPages" @click="changeRecordPage(recordPage + 1)">下一页</button>
         </div>
       </section>
 
-      <section v-if="currentPage === 'appointment'" class="module-panel page-panel">
+      <section v-if="currentPage === 'appointment'" class="page-panel appointment-page">
         <h3>咨询预约</h3>
         <div v-if="currentRole === 'teacher'" class="appointment-board teacher-profile-board">
           <h4>教师个人资料</h4>
@@ -3006,8 +3161,8 @@ async function editAlert(alert) {
 
         <div class="appointment-board appointment-info-board">
           <h4>同学预约信息</h4>
-          <div v-if="visibleAppointments.length" class="appointment-strip">
-            <article v-for="item in visibleAppointments" :key="`strip-${item.id}`">
+          <div v-if="recentAppointments.length" class="appointment-strip">
+            <article v-for="item in recentAppointments" :key="`strip-${item.id}`">
               <strong>{{ item.student_name }}</strong>
               <span>{{ item.counselor_name }}</span>
               <span>{{ item.topic }}</span>
@@ -3024,7 +3179,8 @@ async function editAlert(alert) {
               <button v-if="canManage" class="danger-button appointment-delete" type="button" @click="adminDelete(`/api/appointments/${item.id}/`)">删除</button>
             </article>
           </div>
-          <p v-else class="empty-state">暂无可展示的预约信息。</p>
+          <p v-if="hasMoreAppointments" class="appointment-more-hint">...</p>
+          <p v-if="!recentAppointments.length" class="empty-state">暂无可展示的预约信息。</p>
         </div>
 
         <div v-if="canWrite" class="appointment-board appointment-form-board">
@@ -3098,23 +3254,98 @@ async function editAlert(alert) {
         </template>
       </section>
 
-      <section v-if="currentPage === 'alerts' && canViewAlerts" class="module-panel page-panel alerts-panel">
+      <section v-if="currentPage === 'alerts' && canViewAlerts" class="page-panel alerts-page">
         <h3>危机预警</h3>
-        <div class="module-list">
-          <article v-for="alert in moduleData?.alerts" :key="alert.id" class="alert-card">
-            <strong>{{ alert.student_name }} · {{ alertLevelLabel(alert.level) }}</strong>
-            <p>{{ alert.trigger }}</p>
-            <span>{{ formatDateTime(alert.created_at) }} · {{ alert.handled ? '已处理' : '待跟进' }}</span>
-            <div class="admin-actions">
-              <button type="button" @click="openAlertStudentDetail(alert)">查看学生详情</button>
-            </div>
-            <div v-if="canManage" class="admin-actions">
-              <button type="button" @click="editAlert(alert)">{{ alert.handled ? '标记未处理' : '标记已处理' }}</button>
-              <button class="danger-button" type="button" @click="adminDelete(`/api/crisis-alerts/${alert.id}/`)">删除</button>
-            </div>
-          </article>
+        <div v-if="alertItems.length" class="section-block">
+          <div class="section-label"><span>预警列表</span><em>{{ alertItems.length }} 条 · {{ alertItems.filter(a => !a.handled).length }} 条待跟进</em></div>
+          <div class="alert-list">
+            <article v-for="alert in pagedAlerts" :key="alert.id" :class="['alert-card', 'compact', alert.level]">
+              <div class="alert-card-main">
+                <div class="alert-card-info">
+                  <strong>{{ alert.student_name }}</strong>
+                  <span class="alert-level-tag">{{ alertLevelLabel(alert.level) }}</span>
+                  <small>{{ formatDateTime(alert.created_at) }}</small>
+                  <small class="alert-status">{{ alert.handled ? '已处理' : '待跟进' }}</small>
+                </div>
+                <p>{{ alert.trigger }}</p>
+              </div>
+              <div class="alert-card-actions">
+                <button type="button" @click="openAlertStudentDetail(alert)">详情</button>
+                <template v-if="canManage">
+                  <button type="button" @click="editAlert(alert)">{{ alert.handled ? '未处理' : '已处理' }}</button>
+                  <button class="danger-button compact" type="button" @click="adminDelete(`/api/crisis-alerts/${alert.id}/`)">删除</button>
+                </template>
+              </div>
+            </article>
+          </div>
+        </div>
+        <div v-if="alertTotalPages > 1" class="pagination-bar">
+          <button type="button" :disabled="alertPage <= 1" @click="changeAlertPage(alertPage - 1)">上一页</button>
+          <span>第 {{ alertPage }} / {{ alertTotalPages }} 页 · 共 {{ alertItems.length }} 条</span>
+          <button type="button" :disabled="alertPage >= alertTotalPages" @click="changeAlertPage(alertPage + 1)">下一页</button>
         </div>
         <a v-if="canManage" class="outline-link admin-link" href="http://127.0.0.1:8000/admin/" target="_blank" rel="noreferrer">进入 Django 后台管理</a>
+      </section>
+
+      <section v-if="currentPage === 'treehole-detail'" class="page-panel treehole-detail-page">
+        <button class="text-button" type="button" @click="navigate('treehole')">← 返回树洞列表</button>
+        <template v-if="currentTreehole">
+          <article class="treehole-detail-card">
+            <div class="treehole-detail-head">
+              <div class="treehole-detail-author">
+                <span class="treehole-detail-avatar" :style="{ background: '#d85d73' }">{{ (currentTreehole.student_name || '匿').slice(0, 1) }}</span>
+                <div>
+                  <strong>{{ currentTreehole.student_name }}</strong>
+                  <small>{{ formatDateTime(currentTreehole.created_at) }}</small>
+                </div>
+              </div>
+              <div class="treehole-detail-tags">
+                <span class="treehole-cat-tag">{{ treeholeCategoryLabel(currentTreehole.category) }}</span>
+                <span v-if="currentTreehole.mood_tag" class="treehole-mood-tag">{{ currentTreehole.mood_tag }}</span>
+                <span v-if="currentTreehole.risk_flag" class="treehole-risk-tag">⚠ 风险标记</span>
+              </div>
+            </div>
+
+            <div class="treehole-detail-body">
+              <p>{{ currentTreehole.content }}</p>
+            </div>
+
+            <div class="treehole-detail-stats">
+              <div class="treehole-stat">
+                <strong>{{ currentTreehole.support_count || 0 }}</strong>
+                <span>支持</span>
+              </div>
+              <div class="treehole-stat">
+                <strong>{{ (currentTreehole.replies || []).length }}</strong>
+                <span>回复</span>
+              </div>
+            </div>
+          </article>
+
+          <div class="section-block">
+            <div class="section-label"><span>全部回复</span><em>{{ (currentTreehole.replies || []).length }} 条</em></div>
+            <div v-if="currentTreehole.replies?.length" class="treehole-reply-wall">
+              <article v-for="reply in currentTreehole.replies" :key="reply.id" class="treehole-reply-bubble" :class="{ counselor: reply.is_counselor_reply }">
+                <div class="reply-bubble-head">
+                  <strong>{{ reply.responder_name }}</strong>
+                  <small v-if="reply.is_counselor_reply" class="counselor-badge">咨询师</small>
+                  <small>{{ formatDateTime(reply.created_at) }}</small>
+                </div>
+                <p>{{ reply.content }}</p>
+              </article>
+            </div>
+            <p v-else class="empty-state">暂无回复，来做第一个回应的人吧。</p>
+          </div>
+
+          <form v-if="canReplyTreehole" class="treehole-reply-form" @submit.prevent="submitTreeholeReplyFromDetail">
+            <textarea v-model="replyForms[`treehole-${currentTreeholeId}`]" placeholder="写下你想说的话，给予温和的支持..." maxlength="800" rows="3"></textarea>
+            <button class="solid-button" type="submit" :disabled="!replyForms[`treehole-${currentTreeholeId}`]?.trim()">发送回复</button>
+          </form>
+          <p v-else class="module-message">{{ readonlyReason }}</p>
+        </template>
+        <template v-else>
+          <div class="data-loading" style="margin-top:20px">正在加载树洞内容...</div>
+        </template>
       </section>
 
       <section v-if="currentPage === 'alert-detail' && canViewAlerts" class="module-panel page-panel alert-detail-page">
