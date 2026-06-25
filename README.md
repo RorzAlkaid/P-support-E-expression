@@ -1,116 +1,143 @@
-# 大学生心理支持与情绪表达平台
+# 大学生心理支持与情绪表达平台 — 心晴校园
 
-基于 Django + Django REST framework + Vue 3 + Vite 的校园心理健康服务平台。项目面向学生、心理教师和管理员，提供心理资源浏览、情绪打卡、匿名树洞、心理测评、咨询预约、风险预警、AI 倾听、数据洞察和后台管理等功能。
+基于 Django + Django REST framework + Vue 3 + Vite 的校园心理健康服务平台。面向学生、心理教师和管理员，提供情绪打卡、匿名树洞、心理测评、咨询预约、心理资源、AI 倾听、数据洞察、风险预警和后台管理等一体化功能。
 
-## 功能概览
+## 功能总览
 
-- 公开首页：以网站形式展示平台能力，包含功能入口、登录入口、注册入口、数据洞察展示和 AI 倾听展示。
-- 账号与角色：支持学生、心理教师、管理员角色；登录和注册入口按学生、教师、管理员细分，避免不同身份混用入口。
-- 注册安全：教师和管理员注册必须使用对应邀请码；邀请码由管理员或教师在个人资料中生成或手动维护，学生注册不需要邀请码。
-- 一次性邀请码：邀请码只有在锁定且未使用时有效；被用于一次注册后自动失效，解锁期间无效，再次锁定同一邀请码后恢复一次使用机会。
-- 个人资料：学生可维护基础资料与偏好主题；教师可维护职称、咨询方向、资质说明、可预约时段和教师邀请码；管理员可维护教师邀请码和管理员邀请码。
-- 心理资源：展示心理科普文章，记录学生资源浏览行为，支持同步外部公开心理资源。
-- 情绪打卡：记录心情、强度、睡眠质量、压力来源和日记内容，并生成趋势数据。
-- 匿名树洞：支持匿名发布、回复和教师回应，高风险表达会触发预警标记。
-- 心理测评：根据量表答题生成分数、风险等级和建议。
-- 咨询预约：学生提交预约，教师或管理员可查看并处理预约状态。
-- 风险预警：根据低情绪、高风险文本和高风险测评生成预警，教师和管理员可查看学生详情。
-- AI 倾听：接入兼容 OpenAI Chat Completions 格式的服务，支持管理员配置接口、模型和 Key；前端提供文本对话和浏览器语音转文字输入。
-- 数据洞察：汇总学生、情绪、测评、预警、预约等数据，支持图表展示和 CSV / XLSX 导出。
-- 后台管理：使用 Django Admin + SimpleUI 管理用户、学生档案、咨询师、文章、量表、预警和 AI 配置。
+### 用户端
+- **情绪打卡** — 记录每日情绪、强度、睡眠质量、压力来源和私密日记，自动生成趋势图表
+- **匿名树洞** — 匿名发布倾诉内容，支持同伴回应和咨询师回应；点击帖子进入详情页查看完整内容与回复墙
+- **AI 倾听** — 接入兼容 OpenAI Chat Completions 的大模型，提供即时对话陪伴、情绪梳理和自助建议；支持浏览器语音转文字输入
+- **心理测评** — 通过量表自评生成得分、风险等级和分层建议
+- **咨询预约** — 按咨询师、时间和主题提交预约，查看预约状态
+- **心理资源** — 浏览心理科普文章，支持按标签/标题/分类搜索，记录浏览行为
+
+### 教师端
+- 查看情绪打卡、测评记录、树洞内容和预约队列
+- 维护个人咨询师资料（职称、擅长领域、可预约时段）
+- 管理教师邀请码
+- 查看和处理危机预警，查看预警学生完整数据详情
+
+### 管理员端
+- 将任意学生添加为咨询师（选择学生 → 填写资料 → 一键创建）
+- 维护教师和管理员邀请码
+- 管理全部数据（文章、咨询师、量表、预约、预警等）
+- 配置 AI 倾听服务（API Key、接口地址、模型）
+- 查看数据洞察看板并导出 CSV / Excel
+- 进入 Django Admin 后台（SimpleUI）
+
+### 标签系统
+- 咨询师擅长领域和文章均可添加标签
+- 点击 `+` 弹出浮动窗口：展示已有标签（前 5 个 + `...` 展开），也可输入新标签名
+- 学生提交的新标签需教师/管理员审核后生效；教师和管理员直接生效
+- `sync_tags` 命令将已有 JSON 标签同步到 Tag 表
 
 ## 技术栈
 
-后端：
-
-- Python 3.11+
-- Django 5.2
-- Django REST framework
-- django-cors-headers
-- django-simpleui
-- SQLite
-
-前端：
-
-- Vue 3
-- Vite
-- Axios
-- ECharts
-- Pinia
-- Vue Router
+| 层 | 技术 |
+|----|------|
+| 后端框架 | Django 5.2 + Django REST Framework 3.17 |
+| 数据库 | SQLite（开发环境） |
+| 后台管理 | Django Admin + SimpleUI |
+| 跨域 | django-cors-headers |
+| 前端框架 | Vue 3（Composition API） |
+| 构建工具 | Vite 8 |
+| HTTP 客户端 | Axios |
+| 图表 | ECharts 6 |
+| 语音识别 | Web Speech API（浏览器内置） |
 
 ## 目录结构
 
 ```text
 P-support-E-expression/
-├─ backend/
-│  ├─ config/
-│  ├─ wellness/
-│  │  ├─ management/commands/
-│  │  │  ├─ seed_demo.py
-│  │  │  ├─ sync_authoritative_counselors.py
-│  │  │  └─ sync_authoritative_resources.py
-│  │  ├─ migrations/
-│  │  ├─ admin.py
-│  │  ├─ models.py
-│  │  ├─ serializers.py
-│  │  ├─ urls.py
-│  │  └─ views.py
-│  └─ manage.py
-├─ frontend/
-│  ├─ public/
-│  ├─ src/
-│  │  ├─ assets/
-│  │  ├─ App.vue
-│  │  ├─ main.js
-│  │  └─ style.css
-│  ├─ index.html
-│  ├─ package.json
-│  └─ vite.config.js
-├─ scripts/
-│  ├─ setup_daily_counselor_sync.ps1
-│  └─ setup_daily_resource_sync.ps1
-├─ requirements.txt
-└─ README.md
+├── backend/
+│   ├── config/              # Django 项目配置
+│   │   ├── settings.py
+│   │   ├── urls.py
+│   │   └── wsgi.py
+│   ├── wellness/            # 主应用
+│   │   ├── management/commands/
+│   │   │   ├── seed_demo.py                     # 演示数据
+│   │   │   ├── sync_authoritative_counselors.py # 同步咨询师
+│   │   │   ├── sync_authoritative_resources.py  # 同步心理资源
+│   │   │   └── sync_tags.py                     # 同步标签
+│   │   ├── migrations/      # 数据库迁移
+│   │   ├── admin.py         # Django Admin 配置
+│   │   ├── models.py        # 数据模型（18 个模型）
+│   │   ├── serializers.py   # DRF 序列化器
+│   │   ├── urls.py          # API 路由
+│   │   └── views.py         # 业务逻辑
+│   ├── db.sqlite3           # SQLite 数据库
+│   └── manage.py
+├── frontend/
+│   ├── src/
+│   │   ├── assets/          # 图片、Logo
+│   │   ├── App.vue          # 单文件全应用（~3300 行）
+│   │   ├── main.js          # Vue 入口
+│   │   └── style.css        # 全局样式（~4800 行）
+│   ├── dist/                # 生产构建产物
+│   ├── index.html
+│   └── package.json
+├── scripts/                 # Windows 计划任务脚本
+├── requirements.txt
+└── README.md
 ```
 
-本地虚拟环境、`node_modules`、构建产物、日志文件、SQLite 数据库和 AI Key 配置文件不应提交到仓库，已通过 `.gitignore` 忽略。
+> 前端采用单文件组件架构，`App.vue` 通过 `currentPage` 状态切换页面，`window.location.hash` 管理路由。所有 API 调用通过 Axios 发送到 `/api/...` 端点。
 
-## 后端运行
+## 数据模型
 
-在项目根目录执行：
+| 模型 | 用途 |
+|------|------|
+| AccountProfile | 用户角色（学生/教师/管理员） |
+| StudentProfile | 学生档案（学号、学院、年级、压力来源） |
+| Counselor | 咨询师（姓名、职称、擅长领域、可预约时段） |
+| Tag | 标签主数据 |
+| TagSuggestion | 标签建议（用户提议→审核→应用） |
+| Article | 心理科普文章 |
+| ExternalResourceSource | 外部资源源站 |
+| ResourceFetchLog | 资源抓取日志 |
+| ResourceViewLog | 学生资源浏览记录 |
+| MoodEntry | 情绪打卡记录 |
+| TreeHolePost | 匿名树洞帖子 |
+| TreeHoleReply | 树洞回复 |
+| AssessmentScale | 心理量表 |
+| AssessmentRecord | 测评记录 |
+| Appointment | 咨询预约 |
+| CrisisAlert | 危机预警 |
+| InvitationCode | 邀请码 |
+| AIChatConfig | AI 倾听配置 |
+
+## 快速开始
+
+### 1. 后端
 
 ```powershell
+cd P-support-E-expression
+
+# 创建虚拟环境
 python -m venv .venv
 .\.venv\Scripts\activate
-pip install -r requirements.txt
+
+# 安装依赖（清华源加速）
+pip install -r requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple
+
+# 初始化数据库
 cd backend
 python manage.py migrate
+
+# 导入演示数据（含 admin/student001/teacher001 账号）
 python manage.py seed_demo
+
+# 启动服务
 python manage.py runserver
 ```
 
-后端地址：
+后端地址：`http://127.0.0.1:8000/`
+后台管理：`http://127.0.0.1:8000/admin/`
+API 浏览：`http://127.0.0.1:8000/api/`
 
-```text
-http://127.0.0.1:8000/
-```
-
-后台管理地址：
-
-```text
-http://127.0.0.1:8000/admin/
-```
-
-DRF 调试接口地址：
-
-```text
-http://127.0.0.1:8000/api/
-```
-
-`/api/` 是 Django REST framework 提供的接口调试页面，不是最终用户使用的 Vue 前台页面。前端依赖实际 `/api/...` 接口，删除接口路由会影响项目功能。
-
-## 前端运行
+### 2. 前端
 
 ```powershell
 cd frontend
@@ -118,111 +145,115 @@ npm install
 npm run dev
 ```
 
-前端地址：
+前端地址：`http://127.0.0.1:5173/`
 
-```text
-http://127.0.0.1:5173/
-```
+生产构建：`npm run build`
 
-生产构建：
+### 3. 演示账号
 
-```powershell
-cd frontend
-npm run build
-```
+| 账号 | 密码 | 角色 |
+|------|------|------|
+| admin | admin123456 | 管理员 |
+| student001 | student001 | 学生 |
+| teacher001 | teacher001 | 教师 |
 
 ## AI 倾听配置
 
-AI 倾听接口默认使用兼容 OpenAI Chat Completions 的请求格式。可以通过环境变量或管理员页面配置：
+支持 OpenAI、DeepSeek 及兼容 Chat Completions 格式的接口。管理员登录后在前端 AI 倾听页面直接配置，或通过环境变量：
 
 ```powershell
 $env:AI_CHAT_API_URL="https://api.openai.com/v1/chat/completions"
-$env:AI_CHAT_API_KEY="your-api-key"
+$env:AI_CHAT_API_KEY="sk-xxx"
 $env:AI_CHAT_MODEL="gpt-4o-mini"
 $env:AI_CHAT_TIMEOUT="30"
 ```
 
-也可以登录管理员账号后，在前端 `AI 倾听对话` 页面保存 API Key、接口地址、模型和超时时间。DeepSeek 兼容接口请填写 `/chat/completions`，不要填写 `/anthropic`。
+> DeepSeek 请使用 `/chat/completions` 路径，不要填写 `/anthropic`。
 
 ## 账号注册与邀请码
 
-平台登录和注册入口按身份拆分：
+| 角色 | 注册方式 |
+|------|----------|
+| 学生 | 直接注册，无需邀请码 |
+| 教师 | 需要教师邀请码 |
+| 管理员 | 需要管理员邀请码 |
 
-- 学生入口：学生账号直接注册，不需要邀请码。
-- 教师入口：教师注册必须填写有效的教师邀请码。
-- 管理员入口：管理员入口以较小文字显示，管理员注册必须填写有效的管理员邀请码。
+- 邀请码由教师或管理员在个人资料中维护：可随机生成（16 位）或手动输入
+- 锁定后复制到剪贴板，解锁后立即失效
+- 一次性使用：注册后自动消耗，解锁再锁定恢复一次使用机会
 
-邀请码维护规则：
+## API 接口
 
-- 管理员可在个人资料中维护两个邀请码：教师邀请码、管理员邀请码。
-- 教师可维护教师邀请码，不能维护管理员邀请码。
-- 邀请码可以随机生成，也可以手动输入。随机生成时为 16 位随机字符；手动输入不限制长度。
-- 点击锁图标会锁定邀请码并复制到粘贴板；锁定状态下邀请码输入框变暗且不可编辑。
-- 点击已锁定的锁图标会解锁，解锁后该邀请码立刻失效，可重新编辑。
-- 已锁定的邀请码可通过左键或右键复制，复制时会在鼠标上方显示小型提示浮窗。
-- 邀请码是一次性的：被用于一次教师或管理员注册后会自动失效。只有解锁后再次锁定，才会重新获得一次注册机会。
+### 认证
+- `POST /api/auth/register/` — 注册
+- `POST /api/auth/login/` — 登录
+- `POST /api/auth/logout/` — 登出
+- `GET /api/auth/me/` — 当前用户
+- `GET/PATCH /api/auth/profile/` — 个人资料
+- `GET/POST /api/auth/invitations/` — 邀请码管理
+- `GET/PATCH /api/auth/teacher-profile/` — 教师资料
 
-## 常用接口
+### 功能模块
+- `GET /api/modules/` — 模块中心
+- `POST /api/modules/moods/` — 提交情绪打卡
+- `POST /api/modules/treeholes/` — 发布树洞
+- `POST /api/modules/treeholes/:id/reply/` — 回复树洞
+- `POST /api/modules/assessments/` — 提交测评
+- `POST /api/modules/appointments/` — 提交预约
 
-- `GET /api/health/`：服务健康检查。
-- `POST /api/auth/register/`：注册账号。
-- `POST /api/auth/login/`：登录账号。
-- `GET/PATCH /api/auth/profile/`：读取或更新个人资料。
-- `GET/POST /api/auth/invitations/`：读取、锁定或解锁当前账号可维护的邀请码。
-- `GET /api/modules/`：模块中心数据。
-- `POST /api/modules/moods/`：提交情绪打卡。
-- `POST /api/modules/treeholes/`：发布匿名树洞。
-- `POST /api/modules/assessments/`：提交心理测评。
-- `POST /api/modules/appointments/`：提交咨询预约。
-- `GET /api/insights/`：读取数据洞察。
-- `GET /api/export-insights/csv/`：导出 CSV。
-- `GET /api/export-insights/xlsx/`：导出 XLSX。
-- `GET/PATCH /api/ai-chat/config/`：读取或保存 AI 倾听配置。
-- `POST /api/ai-chat/`：发送 AI 倾听消息。
+### 数据
+- `GET /api/insights/` — 数据洞察
+- `GET /api/export-insights/csv/` — 导出 CSV
+- `GET /api/export-insights/xlsx/` — 导出 Excel
+- `GET /api/dashboard/` — 首页概览
+- `GET /api/mood-trend/` — 情绪趋势
+- `GET /api/pressure-distribution/` — 压力分布
+- `GET /api/recommendations/counselors/` — 咨询师推荐
 
-## 常用命令
+### 资源 & 标签
+- `GET /api/articles/` — 文章列表
+- `GET /api/tags/` — 标签列表
+- `POST /api/tag-suggestions/` — 提交标签建议
+- `PATCH /api/tag-suggestions/:id/` — 审核标签
+- `POST /api/articles/:id/view-log/` — 记录浏览
 
-后端检查：
+### AI
+- `GET/PATCH /api/ai-chat/config/` — AI 配置
+- `POST /api/ai-chat/` — AI 对话
+
+### 其他
+- `GET /api/health/` — 健康检查
+- `GET /api/alerts/:id/student-detail/` — 预警学生详情
+
+## 管理命令
 
 ```powershell
 cd backend
-..\.venv\Scripts\python.exe manage.py check
-```
 
-同步心理科普资源：
+# 系统检查
+python manage.py check
 
-```powershell
-cd backend
-..\.venv\Scripts\python.exe manage.py sync_authoritative_resources --force
-```
+# 同步标签（从 JSON 字段到 Tag 表）
+python manage.py sync_tags
 
-同步咨询师数据：
+# 同步外部心理资源
+python manage.py sync_authoritative_resources --force
 
-```powershell
-cd backend
-..\.venv\Scripts\python.exe manage.py sync_authoritative_counselors --force
-```
+# 同步咨询师数据
+python manage.py sync_authoritative_counselors --force
 
-注册每日同步计划任务：
-
-```powershell
-.\scripts\setup_daily_resource_sync.ps1
-.\scripts\setup_daily_counselor_sync.ps1
+# 运行测试
+python manage.py test wellness.tests
 ```
 
 ## 数据库说明
 
-开发环境默认使用 SQLite：
+开发环境使用 SQLite（`backend/db.sqlite3`）。Navicat 连接时选择 SQLite 类型并选中该文件即可，无需账号密码。
 
-```text
-backend/db.sqlite3
-```
+## 部署注意事项
 
-如果使用 Navicat 连接，选择 SQLite 连接类型并选中该文件即可。SQLite 本地文件模式没有数据库账号和密码。
-
-## 部署提示
-
-- 部署前需要关闭 `DEBUG`，配置正式 `SECRET_KEY` 和 `ALLOWED_HOSTS`。
-- 根据实际环境替换 SQLite 为 MySQL、PostgreSQL 等数据库时，需要同步调整 Django 数据库配置。
-- 生产环境建议将 AI Key、`SECRET_KEY` 等敏感配置放入环境变量或安全配置服务，不要写入代码仓库。
-- 爬虫同步数据来自公开网页，仅用于课程设计、毕业设计或原型演示场景。
+- 关闭 `DEBUG`，配置 `SECRET_KEY` 和 `ALLOWED_HOSTS`
+- 生产环境替换 SQLite 为 MySQL / PostgreSQL
+- AI Key 等敏感配置放入环境变量或密钥管理服务
+- 爬虫同步功能仅用于课程设计或原型演示
+- 前端 `dist/` 目录可部署到 Nginx 等静态服务器，配合 Django 后端 API
