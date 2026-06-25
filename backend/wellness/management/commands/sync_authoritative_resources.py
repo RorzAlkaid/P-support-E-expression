@@ -87,7 +87,7 @@ def fetch_html(url):
     request = Request(
         url,
         headers={
-            'User-Agent': 'P-support-E-expression academic demo crawler/1.0',
+            'User-Agent': 'P-support-E-expression academic crawler/1.0',
             'Accept': 'text/html,application/xhtml+xml',
         },
     )

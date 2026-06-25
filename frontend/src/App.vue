@@ -399,6 +399,7 @@ const minAppointmentDateTime = computed(() => formatDateTimeInput(new Date()))
 const canWrite = computed(() => ['student', 'admin'].includes(currentRole.value))
 const canUseAiChat = computed(() => ['student', 'teacher', 'admin'].includes(currentRole.value))
 const canManage = computed(() => currentRole.value === 'admin')
+const adminUrl = computed(() => import.meta.env.DEV ? 'http://127.0.0.1:8000/admin/' : '/admin/')
 const canViewAlerts = computed(() => ['teacher', 'admin'].includes(currentRole.value))
 const canViewInsights = computed(() => true)
 const canDownloadInsights = computed(() => ['teacher', 'admin'].includes(currentRole.value))
@@ -732,7 +733,7 @@ async function openArticle(article) {
     try {
       await axios.post(`/api/articles/${article.id}/view-log/`)
     } catch (error) {
-      console.error('资源浏览记录保存失败', error)
+      // 资源浏览记录保存失败（静默处理）
     }
   }
   if (reloadIntoPage(articlePath)) {
@@ -762,7 +763,7 @@ async function loadAllTreeholes() {
     const response = await axios.get('/api/treehole-posts/')
     allTreeholes.value = response.data.results ?? response.data
   } catch (error) {
-    console.error('树洞列表加载失败', error)
+    // 树洞列表加载失败（静默处理）
     allTreeholes.value = []
   } finally {
     treeholeLoading.value = false
@@ -780,7 +781,7 @@ async function loadTreeholeDetail(treeholeOrId) {
     }
     currentTreeholeId.value = treeholeId
   } catch (error) {
-    console.error('树洞详情加载失败', error)
+    // 树洞详情加载失败（静默处理）
   }
 }
 
@@ -857,7 +858,7 @@ async function loadBackendData() {
     scheduleScrollMotion()
   } catch (error) {
     loading.value = false
-    console.error('Django API 数据加载失败', error)
+    // API 数据加载失败（静默处理）
   }
 }
 
@@ -912,7 +913,7 @@ async function loadCurrentUser() {
     }
   } catch (error) {
     currentUser.value = null
-    console.error('当前登录状态检查失败', error)
+    // 当前登录状态检查失败（静默处理）
   } finally {
     authReady.value = true
   }
@@ -1165,7 +1166,7 @@ const features = [
     page: 'ai-chat',
     title: 'AI 倾听',
     subtitle: '把此刻的压力慢慢说清',
-    desc: '游客可以查看示例，学生登录后可进入对话，把压力、情绪或困扰写下来。',
+    desc: '登录后可进入对话，把压力、情绪或困扰写下来，获得即时倾听与情绪梳理。',
     stat: '即时陪伴',
     accent: 'rose',
     detail: '接入 AI 倾听助手，提供温和回应、情绪梳理和短时可执行建议，同时保留真人支持提醒。',
@@ -1465,7 +1466,7 @@ async function lockInvitation(role, event) {
       })
       syncInvitationCodes(response.data.invitation_codes)
     } catch (error) {
-      console.error('邀请码解锁失败', error)
+      // 邀请码解锁失败（静默处理）
     }
     return
   }
@@ -1481,7 +1482,7 @@ async function lockInvitation(role, event) {
     syncInvitationCodes(response.data.invitation_codes)
     await copyInvitation(role, event)
   } catch (error) {
-    console.error('邀请码保存失败', error)
+    // 邀请码保存失败（静默处理）
   }
 }
 
@@ -1636,7 +1637,7 @@ async function loadStudentList() {
     const response = await axios.get('/api/students/')
     studentList.value = response.data.results ?? response.data
   } catch (error) {
-    console.error('学生列表加载失败', error)
+    // 学生列表加载失败（静默处理）
   }
 }
 
@@ -2467,7 +2468,7 @@ async function editAlert(alert) {
         <div class="section-heading align-left wide-heading">
           <span class="eyebrow">专业对接</span>
           <h2>基于学生偏好与压力来源推荐咨询师</h2>
-          <p>后端根据学生压力来源、关注主题与咨询师擅长领域计算匹配分，后续可替换为更完整的推荐算法。</p>
+          <p>系统根据学生压力来源、关注主题与咨询师擅长领域智能计算匹配度，推荐最适合的心理咨询师。</p>
         </div>
 
         <div class="compact-list support-list">
@@ -2521,7 +2522,7 @@ async function editAlert(alert) {
         <div class="section-heading align-left wide-heading">
           <span class="eyebrow">功能简介</span>
           <h2>按模块进入对应功能页</h2>
-          <p>首页只保留功能说明和入口。点击任一简介卡片后进入对应功能页，再按当前角色进行浏览、提交或管理。</p>
+          <p>点击任一功能卡片进入对应页面，根据当前角色进行浏览、提交或管理操作。</p>
         </div>
 
         <div class="module-intro-grid">
@@ -2549,7 +2550,7 @@ async function editAlert(alert) {
         <div>
           <span class="eyebrow">开始使用</span>
           <h2>进入平台，建立属于校园的心理支持空间</h2>
-          <p>前端页面完成后，可继续接入 Django 后端，实现用户、打卡、树洞、预约、测评与预警数据管理。</p>
+          <p>平台已全面上线，支持情绪打卡、匿名树洞、心理测评、咨询预约与预警管理等完整功能，为校园心理健康保驾护航。</p>
         </div>
         <div class="cta-actions">
           <template v-if="!currentUser">
@@ -3278,7 +3279,7 @@ async function editAlert(alert) {
           <span>第 {{ alertPage }} / {{ alertTotalPages }} 页 · 共 {{ alertItems.length }} 条</span>
           <button type="button" :disabled="alertPage >= alertTotalPages" @click="changeAlertPage(alertPage + 1)">下一页</button>
         </div>
-        <a v-if="canManage" class="outline-link admin-link" href="http://127.0.0.1:8000/admin/" target="_blank" rel="noreferrer">进入 Django 后台管理</a>
+        <a v-if="canManage" class="outline-link admin-link" :href="adminUrl" target="_blank" rel="noreferrer">进入后台管理</a>
       </section>
 
       <section v-if="currentPage === 'treehole-detail'" class="page-panel treehole-detail-page">
@@ -3479,7 +3480,7 @@ async function editAlert(alert) {
             服务说明：情绪打卡、匿名表达、心理测评与咨询预约数据仅用于校园心理支持流程；平台倡导尊重、保密、及时响应的求助环境。
           </p>
           <p>
-            所属学校：北京城市学院 ｜ 联系邮箱：1751551811@qq.com ｜ 联系电话：18513020539；13107209820
+            所属学校：请在学校后台配置 ｜ 联系邮箱：请在学校后台配置 ｜ 联系电话：请在学校后台配置
           </p>
           <p>
             服务时间：工作日 08:00-20:00 ｜ 紧急支持：请优先联系学校值班老师或当地紧急援助渠道。

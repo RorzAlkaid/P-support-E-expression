@@ -194,14 +194,14 @@ class Counselor(TimeStampedModel):
 
 
 class Tag(TimeStampedModel):
-    name = models.CharField(max_length=30, unique=True, verbose_name='tag name')
-    description = models.TextField(blank=True, verbose_name='tag description')
-    is_active = models.BooleanField(default=True, verbose_name='is active')
-    created_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name='created_tags', verbose_name='created by')
+    name = models.CharField(max_length=30, unique=True, verbose_name='标签名称')
+    description = models.TextField(blank=True, verbose_name='标签描述')
+    is_active = models.BooleanField(default=True, verbose_name='是否启用')
+    created_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name='created_tags', verbose_name='创建者')
 
     class Meta:
-        verbose_name = 'tag'
-        verbose_name_plural = 'tags'
+        verbose_name = '标签'
+        verbose_name_plural = '标签'
         ordering = ['name']
 
     def __str__(self):
@@ -271,19 +271,19 @@ class ResourceFetchLog(TimeStampedModel):
 
 
 class ResourceViewLog(TimeStampedModel):
-    student = models.ForeignKey(StudentProfile, on_delete=models.CASCADE, related_name='resource_view_logs', verbose_name='student')
-    article = models.ForeignKey(Article, on_delete=models.SET_NULL, null=True, blank=True, related_name='view_logs', verbose_name='article')
-    article_title = models.CharField(max_length=120, verbose_name='article title')
-    article_source = models.CharField(max_length=120, blank=True, verbose_name='article source')
-    article_category = models.CharField(max_length=40, blank=True, verbose_name='article category')
+    student = models.ForeignKey(StudentProfile, on_delete=models.CASCADE, related_name='resource_view_logs', verbose_name='学生')
+    article = models.ForeignKey(Article, on_delete=models.SET_NULL, null=True, blank=True, related_name='view_logs', verbose_name='文章')
+    article_title = models.CharField(max_length=120, verbose_name='文章标题')
+    article_source = models.CharField(max_length=120, blank=True, verbose_name='文章来源')
+    article_category = models.CharField(max_length=40, blank=True, verbose_name='文章分类')
 
     class Meta:
-        verbose_name = 'resource view log'
-        verbose_name_plural = 'resource view logs'
+        verbose_name = '资源浏览记录'
+        verbose_name_plural = '资源浏览记录'
         ordering = ['-created_at']
 
     def __str__(self):
-        return f'{self.student} viewed {self.article_title}'
+        return f'{self.student} 浏览了 {self.article_title}'
 
 
 class AssessmentScale(TimeStampedModel):
@@ -421,34 +421,34 @@ class TagSuggestion(TimeStampedModel):
     TARGET_ARTICLE = 'article'
     TARGET_COUNSELOR = 'counselor'
     TARGET_CHOICES = [
-        (TARGET_ARTICLE, 'article'),
-        (TARGET_COUNSELOR, 'counselor'),
+        (TARGET_ARTICLE, '文章'),
+        (TARGET_COUNSELOR, '咨询师'),
     ]
     STATUS_PENDING = 'pending'
     STATUS_APPROVED = 'approved'
     STATUS_REJECTED = 'rejected'
     STATUS_CHOICES = [
-        (STATUS_PENDING, 'pending'),
-        (STATUS_APPROVED, 'approved'),
-        (STATUS_REJECTED, 'rejected'),
+        (STATUS_PENDING, '待审核'),
+        (STATUS_APPROVED, '已通过'),
+        (STATUS_REJECTED, '已驳回'),
     ]
 
-    proposer = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name='tag_suggestions', verbose_name='proposer')
-    reviewer = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name='reviewed_tag_suggestions', verbose_name='reviewer')
-    tag_name = models.CharField(max_length=30, verbose_name='tag name')
-    target_type = models.CharField(max_length=20, choices=TARGET_CHOICES, verbose_name='target type')
-    target_id = models.PositiveIntegerField(verbose_name='target id')
-    status = models.CharField(max_length=16, choices=STATUS_CHOICES, default=STATUS_PENDING, verbose_name='status')
-    review_note = models.TextField(blank=True, verbose_name='review note')
-    reviewed_at = models.DateTimeField(null=True, blank=True, verbose_name='reviewed at')
+    proposer = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name='tag_suggestions', verbose_name='提议者')
+    reviewer = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name='reviewed_tag_suggestions', verbose_name='审核者')
+    tag_name = models.CharField(max_length=30, verbose_name='标签名称')
+    target_type = models.CharField(max_length=20, choices=TARGET_CHOICES, verbose_name='目标类型')
+    target_id = models.PositiveIntegerField(verbose_name='目标编号')
+    status = models.CharField(max_length=16, choices=STATUS_CHOICES, default=STATUS_PENDING, verbose_name='审核状态')
+    review_note = models.TextField(blank=True, verbose_name='审核备注')
+    reviewed_at = models.DateTimeField(null=True, blank=True, verbose_name='审核时间')
 
     class Meta:
-        verbose_name = 'tag suggestion'
-        verbose_name_plural = 'tag suggestions'
+        verbose_name = '标签提议'
+        verbose_name_plural = '标签提议'
         ordering = ['status', '-created_at']
 
     def __str__(self):
-        return f'{self.tag_name} -> {self.target_type}#{self.target_id}'
+        return f'{self.tag_name} → {self.get_target_type_display()}#{self.target_id}'
 
 
 class CrisisAlert(TimeStampedModel):

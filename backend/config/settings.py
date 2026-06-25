@@ -21,12 +21,12 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # See https://docs.djangoproject.com/en/5.2/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = 'django-insecure-$03#31$$90lt#=7c+9z_5_qjws4gk#c##t@x2ne-9h$khre%6%'
+SECRET_KEY = os.environ.get('DJANGO_SECRET_KEY', 'django-insecure-$03#31$$90lt#=7c+9z_5_qjws4gk#c##t@x2ne-9h$khre%6%')
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
+DEBUG = os.environ.get('DJANGO_DEBUG', 'True').lower() in ('true', '1', 'yes')
 
-ALLOWED_HOSTS = []
+ALLOWED_HOSTS = os.environ.get('DJANGO_ALLOWED_HOSTS', 'localhost,127.0.0.1').split(',')
 
 
 # Application definition
@@ -122,10 +122,10 @@ USE_TZ = True
 
 STATIC_URL = 'static/'
 
-CORS_ALLOWED_ORIGINS = [
-    'http://localhost:5173',
-    'http://127.0.0.1:5173',
-]
+CORS_ALLOWED_ORIGINS = os.environ.get(
+    'CORS_ALLOWED_ORIGINS',
+    'http://localhost:5173,http://127.0.0.1:5173',
+).split(',')
 
 # Default primary key field type
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field
@@ -164,6 +164,7 @@ SIMPLEUI_CONFIG = {
                 {'name': '用户组', 'icon': 'fas fa-users', 'url': 'auth/group/'},
                 {'name': '账号角色', 'icon': 'fas fa-id-card', 'url': 'wellness/accountprofile/'},
                 {'name': '学生档案', 'icon': 'fas fa-address-card', 'url': 'wellness/studentprofile/'},
+                {'name': '邀请码', 'icon': 'fas fa-key', 'url': 'wellness/invitationcode/'},
             ],
         },
         {
@@ -186,8 +187,11 @@ SIMPLEUI_CONFIG = {
                 {'name': '心理科普文章', 'icon': 'fas fa-book-open', 'url': 'wellness/article/'},
                 {'name': '外部资源源站', 'icon': 'fas fa-globe', 'url': 'wellness/externalresourcesource/'},
                 {'name': '资源抓取记录', 'icon': 'fas fa-history', 'url': 'wellness/resourcefetchlog/'},
+                {'name': '标签管理', 'icon': 'fas fa-tags', 'url': 'wellness/tag/'},
+                {'name': '标签提议', 'icon': 'fas fa-tag', 'url': 'wellness/tagsuggestion/'},
                 {'name': '心理量表', 'icon': 'fas fa-clipboard-list', 'url': 'wellness/assessmentscale/'},
                 {'name': '量表记录', 'icon': 'fas fa-poll', 'url': 'wellness/assessmentrecord/'},
+                {'name': '资源浏览记录', 'icon': 'fas fa-eye', 'url': 'wellness/resourceviewlog/'},
             ],
         },
     ],

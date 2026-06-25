@@ -84,6 +84,13 @@ AI_CHAT_SYSTEM_PROMPT = """
 
 
 class CsrfExemptSessionAuthentication(SessionAuthentication):
+    """Session auth with CSRF exemption for API views.
+
+    NOTE: CSRF protection is bypassed for API convenience during SPA development.
+    In production with the frontend served from the same domain, ensure Django's
+    CSRF middleware is properly configured and the frontend includes the CSRF token
+    in request headers. Alternatively, switch to TokenAuthentication for API views.
+    """
     def enforce_csrf(self, request):
         return
 

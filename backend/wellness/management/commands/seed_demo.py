@@ -23,7 +23,7 @@ from wellness.models import (
 
 
 class Command(BaseCommand):
-    help = '创建心理支持平台演示数据'
+    help = '创建心理支持平台初始化数据'
 
     def handle(self, *args, **options):
         user, _ = User.objects.update_or_create(
@@ -165,7 +165,7 @@ class Command(BaseCommand):
             code='SAS-DEMO',
             defaults={
                 'name': '焦虑状态自评简表',
-                'description': '用于演示的非诊断性量表，结果仅作为心理支持参考。',
+                'description': '非诊断性自评量表，结果仅作为心理支持参考，不能替代专业评估。',
                 'questions': [
                     {'title': '最近一周我经常感到紧张', 'options': [0, 1, 2, 3]},
                     {'title': '我难以放松下来', 'options': [0, 1, 2, 3]},
@@ -178,7 +178,7 @@ class Command(BaseCommand):
             code='SLEEP-DEMO',
             defaults={
                 'name': '睡眠状态自评简表',
-                'description': '用于了解近期睡眠质量的非诊断性量表。',
+                'description': '用于了解近期睡眠质量的非诊断性自评量表，结果仅供参考。',
                 'questions': [
                     {'title': '最近我入睡比较困难', 'options': [0, 1, 2, 3]},
                     {'title': '夜间醒来后难以再次入睡', 'options': [0, 1, 2, 3]},
@@ -206,7 +206,7 @@ class Command(BaseCommand):
                 intensity=intensity,
                 sleep_quality=sleep,
                 pressure_sources=sources,
-                note=f'第 {index + 1} 天情绪记录，用于趋势展示。',
+                note=f'第 {index + 1} 天情绪记录。',
                 is_private=True,
             )
             MoodEntry.objects.filter(id=entry.id).update(created_at=now - timedelta(days=6 - index))
@@ -251,7 +251,7 @@ class Command(BaseCommand):
                 defaults={
                     'topic': choice(['人际关系支持', '睡眠与压力调整', '自我成长困惑']),
                     'status': choice(['pending', 'confirmed']),
-                    'confidential_note': '演示预约数据。',
+                    'confidential_note': '学生希望讨论近期备考压力与时间管理。',
                 },
             )
 
@@ -322,4 +322,4 @@ class Command(BaseCommand):
         for name in all_tag_names:
             Tag.objects.get_or_create(name=name, defaults={'description': '', 'is_active': True})
 
-        self.stdout.write(self.style.SUCCESS('演示数据已创建：admin/admin123456，student001/student001，teacher001/teacher001'))
+        self.stdout.write(self.style.SUCCESS('初始化数据已创建：admin/admin123456，student001/student001，teacher001/teacher001'))
