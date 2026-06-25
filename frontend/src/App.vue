@@ -3470,6 +3470,7 @@ async function editAlert(alert) {
             <a href="#/home" @click.prevent="navigateHomeSection('scenes')">使用场景</a>
             <a href="#/home" @click.prevent="navigateHomeSection('contact')">联系我们</a>
             <a href="#/register" @click.prevent="openAuth('register')">加入我们</a>
+            <a href="https://github.com/RorzAlkaid/P-support-E-expression" target="_blank" rel="noreferrer" class="footer-github-link" title="在 GitHub 上查看项目">GitHub 协作</a>
           </nav>
 
           <p>

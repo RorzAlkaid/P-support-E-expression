@@ -3807,6 +3807,15 @@ main,
   color: #f0ad63;
 }
 
+.footer-github-link {
+  color: #b0b8c8 !important;
+  font-weight: 700;
+}
+
+.footer-github-link:hover {
+  color: #ffffff !important;
+}
+
 .footer-content p {
   max-width: 980px;
   color: rgba(255, 255, 255, 0.72);
